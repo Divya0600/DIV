@@ -1,0 +1,7 @@
+
+redis>=4.0.0
+requests>=2.25.0
+psutil>=5.8.0
+pywin32>=227
+aiofiles>=0.8.0
+

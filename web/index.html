@@ -1,0 +1,1766 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RenderFarm Professional</title>
+    <!-- Offline assets: served locally from web/vendor -->
+    <link rel="stylesheet" href="vendor/tailwind.min.css?v=1.0" />
+    <script src="vendor/react.production.min.js?v=1.0"></script>
+    <script src="vendor/react-dom.production.min.js?v=1.0"></script>
+    <script src="vendor/babel.min.js?v=1.0"></script>
+    <style>
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 4px; }
+        .loading { display: inline-block; width: 20px; height: 20px; border: 3px solid #f3f3f3; border-top: 3px solid #3498db; border-radius: 50%; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .progress-bar { transition: width 0.3s ease-in-out; }
+        .table-row:hover { transform: translateY(-1px); box-shadow: 0 4px 8px rgba(0,0,0,0.1); transition: all 0.2s ease-in-out; }
+        .modal-backdrop { backdrop-filter: blur(4px); }
+        .btn-hover:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.15); transition: all 0.2s ease-in-out; }
+        .card { transition: box-shadow 0.3s ease-in-out; }
+        .card:hover { box-shadow: 0 8px 25px rgba(0,0,0,0.1); }
+        .status-online { position: relative; }
+        .status-online::before { content: ''; position: absolute; left: -8px; top: 50%; transform: translateY(-50%); width: 6px; height: 6px; background-color: #10b981; border-radius: 50%; animation: pulse 2s infinite; }
+        @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); } 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); } }
+        .form-input:focus { ring-width: 2px; ring-color: #3b82f6; border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1); }
+        .notification { animation: slideInRight 0.3s ease-out; }
+        @keyframes slideInRight { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        .performance-badge { background: linear-gradient(45deg, #10b981, #3b82f6); color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <div id="root">
+        <div class="min-h-screen flex items-center justify-center">
+            <div class="text-center">
+                <div class="loading mb-4 mx-auto"></div>
+                <h2 className="text-xl font-semibold text-gray-700 mb-2">Loading RenderFarm Professional</h2>
+                <p className="text-gray-500">Initializing web interface...</p>
+            </div>
+        </div>
+    </div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        const RenderFarmUI = () => {
+          // State management - ALL FEATURES PRESERVED
+          const [activeTab, setActiveTab] = useState('launch');
+          const [jobs, setJobs] = useState([]);
+          const [workers, setWorkers] = useState([]);
+          const [serverStatus, setServerStatus] = useState('connecting');
+          const [lastUpdate, setLastUpdate] = useState('Never');
+          const [selectedJob, setSelectedJob] = useState(null);
+          const [selectedWorker, setSelectedWorker] = useState(null);
+          const [jobStatsTab, setJobStatsTab] = useState('workers');
+          const [showLogs, setShowLogs] = useState(false);
+          const [selectedBatchLogs, setSelectedBatchLogs] = useState(null);
+          const [config, setConfig] = useState(null);
+          const [serverInfo, setServerInfo] = useState(null);
+          
+          // Enhanced UI state management
+          const [workerPage, setWorkerPage] = useState(0);
+          const [batchPage, setBatchPage] = useState(0);
+          const [batchFilter, setBatchFilter] = useState('all');
+          const [workerSearch, setWorkerSearch] = useState('');
+          const [workerAssignPage, setWorkerAssignPage] = useState(0);
+          const [batchDetailsPage, setBatchDetailsPage] = useState(0);
+          const [batchSearchTerm, setBatchSearchTerm] = useState('');
+          const [batchStatusFilter, setBatchStatusFilter] = useState('all');
+          const [selectedJobBatches, setSelectedJobBatches] = useState(new Set());
+          const [selectAllJobsChecked, setSelectAllJobsChecked] = useState(false);
+          const [selectAllWorkersChecked, setSelectAllWorkersChecked] = useState(false);
+          const [jobPage, setJobPage] = useState(0);
+          
+          // File browser state - removed
+          
+          // Form state with batch size 1 default, but all features preserved
+          const [jobForm, setJobForm] = useState({
+            renderer: '',
+            nukeVersion: '',
+            silhouetteVersion: '',
+            executablePath: '',
+            projectFile: '',
+            jobTitle: '',
+            frameRange: '',
+            batchSize: 1,
+            priority: 'High',
+            enablePathTranslation: true,
+            outputPathTranslate: true,
+            networkShare: '',
+            tempDirectory: ''
+          });
+
+          const fileInputRef = useRef(null);
+          const API_BASE = window.location.origin + '/api';
+
+          // Renderer configuration - Loaded from API config
+          const rendererPaths = config?.renderers || {};
+
+          // API Functions - ALL FEATURES PRESERVED
+          const fetchJobs = async () => {
+            try {
+              const [jobsResponse, statusResponse] = await Promise.all([
+                fetch(`${API_BASE}/jobs`),
+                fetch(`${API_BASE}/status`)
+              ]);
+              
+              if (jobsResponse.ok) {
+                const jobsData = await jobsResponse.json();
+                // Preserve existing selections when updating job data
+                setJobs(prevJobs => {
+                  const newJobs = jobsData.jobs || [];
+                  return newJobs.map(newJob => {
+                    const existingJob = prevJobs.find(job => job.id === newJob.id);
+                    return existingJob ? { ...newJob, selected: existingJob.selected } : newJob;
+                  });
+                });
+                setServerStatus('online');
+              } else {
+                setServerStatus('error');
+              }
+              
+              if (statusResponse.ok) {
+                const statusData = await statusResponse.json();
+                setServerInfo(statusData);
+              }
+            } catch (error) {
+              setServerStatus('offline');
+              console.error('Failed to fetch jobs:', error);
+            }
+          };
+
+          const fetchWorkers = async () => {
+            try {
+              const response = await fetch(`${API_BASE}/workers`);
+              if (response.ok) {
+                const data = await response.json();
+                // Preserve existing selections when updating worker data
+                setWorkers(prevWorkers => {
+                  const newWorkers = data.workers || [];
+                  return newWorkers.map(newWorker => {
+                    const existingWorker = prevWorkers.find(worker => worker.id === newWorker.id);
+                    return existingWorker ? { ...newWorker, selected: existingWorker.selected } : newWorker;
+                  });
+                });
+              }
+            } catch (error) {
+              console.error('Failed to fetch workers:', error);
+            }
+          };
+
+          const fetchConfig = async () => {
+            try {
+              const response = await fetch(`${API_BASE}/config`);
+              if (response.ok) {
+                const configData = await response.json();
+                setConfig(configData);
+                
+                // Update jobForm with config defaults
+                setJobForm(prevForm => ({
+                  ...prevForm,
+                  renderer: configData.defaults?.renderer || 'nuke',
+                  nukeVersion: configData.defaults?.nukeVersion || 'Nuke 16',
+                  silhouetteVersion: configData.defaults?.silhouetteVersion || 'Silhouette 2023',
+                  batchSize: configData.defaults?.batchSize || 1,
+                  priority: configData.defaults?.priority || 'High',
+                  enablePathTranslation: configData.defaults?.enablePathTranslation !== false,
+                  outputPathTranslate: configData.defaults?.outputPathTranslate !== false,
+                  networkShare: configData.paths?.networkShare || '',
+                  tempDirectory: configData.paths?.tempDirectory || ''
+                }));
+              }
+            } catch (error) {
+              console.error('Failed to fetch config:', error);
+            }
+          };
+
+          const fetchJobWorkerDetails = async (jobId) => {
+            try {
+              const response = await fetch(`${API_BASE}/jobs/${jobId}/workers`);
+              if (response.ok) {
+                const data = await response.json();
+                return data.worker_details;
+              }
+            } catch (error) {
+              console.error('Failed to fetch job worker details:', error);
+            }
+            return null;
+          };
+
+          const submitJob = async () => {
+            if (!jobForm.projectFile || !jobForm.jobTitle || !jobForm.frameRange) {
+              alert('Please fill in all required fields');
+              return;
+            }
+
+            try {
+              const response = await fetch(`${API_BASE}/jobs/submit`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  renderer: jobForm.renderer,
+                  executable_path: jobForm.executablePath,
+                  file_path: jobForm.projectFile,
+                  title: jobForm.jobTitle,
+                  job_title: jobForm.jobTitle,
+                  frame_range: jobForm.frameRange,
+                  batch_size: jobForm.batchSize,
+                  priority: jobForm.priority.toLowerCase(),
+                  enable_path_translation: jobForm.enablePathTranslation,
+                  network_share: jobForm.networkShare,
+                  output_path_translate: jobForm.outputPathTranslate,
+                  temp_directory: jobForm.tempDirectory,
+                  optimization: 'standard'
+                })
+              });
+
+              if (response.ok) {
+                const result = await response.json();
+                alert(`Job submitted! ID: ${result.job_id.substring(0, 8)}`);
+                setActiveTab('jobs');
+                fetchJobs();
+                // Clear form
+                setJobForm({
+                  ...jobForm,
+                  projectFile: '',
+                  jobTitle: '',
+                  frameRange: ''
+                });
+              } else {
+                alert('Failed to submit job');
+              }
+            } catch (error) {
+              alert('Error submitting job: ' + error.message);
+            }
+          };
+
+          // File Browser Functions - removed
+
+          const deleteSelectedJobs = async () => {
+            const selected = jobs.filter(job => job.selected);
+            if (selected.length === 0) {
+              alert('No jobs selected');
+              return;
+            }
+
+            if (!confirm(`Delete ${selected.length} job(s)?`)) return;
+
+            let deletedCount = 0;
+            for (const job of selected) {
+              try {
+                const response = await fetch(`${API_BASE}/jobs/delete`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ job_id: job.id })
+                });
+                if (response.ok) deletedCount++;
+              } catch (error) {
+                console.error('Failed to delete job:', error);
+              }
+            }
+            
+            if (deletedCount > 0) {
+              alert(`Deleted ${deletedCount} job(s)`);
+              fetchJobs();
+            }
+          };
+
+          const stopSelectedJobs = async () => {
+            const selected = jobs.filter(job => job.selected);
+            if (selected.length === 0) {
+              alert('No jobs selected');
+              return;
+            }
+
+            if (!confirm(`Stop ${selected.length} job(s)?\n\nNOTE: This will only mark jobs as cancelled in the database.\nRunning worker processes will continue until they finish the current frame.\n\nTo force-kill processes, you'll need to manually stop workers.`)) return;
+
+            console.log('Stopping jobs:', selected.map(j => j.id));
+
+            let stoppedCount = 0;
+            for (const job of selected) {
+              try {
+                console.log(`Stopping job ${job.id}...`);
+                
+                const response = await fetch(`${API_BASE}/jobs/stop`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ job_id: job.id })
+                });
+                
+                const responseText = await response.text();
+                console.log(`Job ${job.id} stop response:`, {
+                  status: response.status,
+                  ok: response.ok,
+                  body: responseText
+                });
+                
+                if (response.ok) {
+                  console.log(`✅ Job ${job.id} marked as cancelled`);
+                  stoppedCount++;
+                } else {
+                  console.error(`❌ Failed to stop job ${job.id}:`, response.status, responseText);
+                }
+              } catch (error) {
+                console.error(`❌ Error stopping job ${job.id}:`, error);
+              }
+            }
+            
+            if (stoppedCount > 0) {
+              alert(`${stoppedCount} job(s) marked as cancelled.\n\nWorker processes may continue running until current frame completes.\nJob status will update to 'cancelled' when workers check next.`);
+              setTimeout(fetchJobs, 2000);
+            } else {
+              alert('Failed to stop any jobs. Check console for details.');
+            }
+          };
+
+          const resumeSelectedJobs = async () => {
+            const selected = jobs.filter(job => job.selected && (job.status === 'stopped' || job.status === 'paused' || job.status === 'cancelled'));
+            if (selected.length === 0) {
+              alert('No stopped/paused/cancelled jobs selected');
+              return;
+            }
+
+            if (!confirm(`Resume ${selected.length} job(s)?\n\nThis will continue from where the job left off:\n- Completed batches will remain completed\n- Only unfinished batches will be re-queued`)) return;
+
+            console.log('Resuming jobs:', selected.map(j => ({ id: j.id, status: j.status })));
+
+            let resumedCount = 0;
+            for (const job of selected) {
+              try {
+                const response = await fetch(`${API_BASE}/jobs/resume`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ job_id: job.id })
+                });
+                
+                const responseText = await response.text();
+                console.log(`Job ${job.id} resume response:`, {
+                  status: response.status,
+                  ok: response.ok,
+                  body: responseText
+                });
+                
+                if (response.ok) {
+                  resumedCount++;
+                  console.log(`✅ Job ${job.id} resume command sent`);
+                } else {
+                  console.error(`❌ Failed to resume job ${job.id}:`, response.status, responseText);
+                }
+              } catch (error) {
+                console.error(`❌ Error resuming job ${job.id}:`, error);
+              }
+            }
+            
+            if (resumedCount > 0) {
+              alert(`Resume command sent for ${resumedCount} job(s).\n\nJobs will continue from where they stopped - only unfinished batches will be processed.`);
+              setTimeout(fetchJobs, 2000);
+            } else {
+              alert('Failed to send resume commands. Check console for details.');
+            }
+          };
+
+          const stopSelectedWorkers = async () => {
+            const selected = workers.filter(worker => worker.selected);
+            if (selected.length === 0) {
+              alert('No workers selected');
+              return;
+            }
+
+            if (!confirm(`Stop ${selected.length} worker(s) from accepting new jobs?`)) return;
+
+            let stoppedCount = 0;
+            for (const worker of selected) {
+              try {
+                const response = await fetch(`${API_BASE}/workers/${worker.id}/stop`, {
+                  method: 'POST'
+                });
+                if (response.ok) stoppedCount++;
+              } catch (error) {
+                console.error('Failed to stop worker:', error);
+              }
+            }
+            
+            if (stoppedCount > 0) {
+              alert(`Stopped ${stoppedCount} worker(s)`);
+              fetchWorkers();
+            }
+          };
+
+          const resumeSelectedWorkers = async () => {
+            const selected = workers.filter(worker => worker.selected);
+            if (selected.length === 0) {
+              alert('No workers selected');
+              return;
+            }
+
+            if (!confirm(`Resume ${selected.length} worker(s) to accept jobs?`)) return;
+
+            let resumedCount = 0;
+            for (const worker of selected) {
+              try {
+                const response = await fetch(`${API_BASE}/workers/${worker.id}/resume`, {
+                  method: 'POST'
+                });
+                if (response.ok) resumedCount++;
+              } catch (error) {
+                console.error('Failed to resume worker:', error);
+              }
+            }
+            
+            if (resumedCount > 0) {
+              alert(`Resumed ${resumedCount} worker(s)`);
+              fetchWorkers();
+            }
+          };
+
+          // Selection functions - Fixed to prevent immediate unselection
+          const toggleJobSelection = (jobId) => {
+            setJobs(prevJobs => {
+              const updatedJobs = prevJobs.map(job => 
+                job.id === jobId ? { ...job, selected: !job.selected } : job
+              );
+              return updatedJobs;
+            });
+          };
+
+          const selectAllJobs = (checked) => {
+            setJobs(prevJobs => prevJobs.map(job => ({ ...job, selected: checked })));
+            setSelectAllJobsChecked(checked);
+          };
+
+          const toggleWorkerSelection = (workerId) => {
+            setWorkers(prevWorkers => {
+              const updatedWorkers = prevWorkers.map(worker => 
+                worker.id === workerId ? { ...worker, selected: !worker.selected } : worker
+              );
+              return updatedWorkers;
+            });
+          };
+
+          const selectAllWorkers = (checked) => {
+            setWorkers(prevWorkers => prevWorkers.map(worker => ({ ...worker, selected: checked })));
+            setSelectAllWorkersChecked(checked);
+          };
+
+          const toggleBatchSelection = (batchId) => {
+            const newSelected = new Set(selectedJobBatches);
+            if (newSelected.has(batchId)) {
+              newSelected.delete(batchId);
+            } else {
+              newSelected.add(batchId);
+            }
+            setSelectedJobBatches(newSelected);
+          };
+
+          const selectAllBatches = (checked, batches) => {
+            if (checked) {
+              setSelectedJobBatches(new Set(batches.map(batch => batch.batch_id)));
+            } else {
+              setSelectedJobBatches(new Set());
+            }
+          };
+
+          // Get app icon based on renderer type - using file references
+          const getAppIcon = (renderer, jobTitle) => {
+            const isNuke = renderer === 'nuke' || (jobTitle && jobTitle.toLowerCase().includes('nuke'));
+            const isSilhouette = renderer === 'silhouette' || (jobTitle && jobTitle.toLowerCase().includes('silhouette'));
+            
+            if (isNuke) {
+              return (
+                <img 
+                  src="images/nukex.svg" 
+                  alt="Nuke" 
+                  className="w-6 h-6 mx-auto" 
+                  style={{width: '24px', height: '24px'}}
+                  onError={(e) => {
+                    e.target.style.display = 'none';
+                    e.target.nextSibling.style.display = 'inline';
+                  }}
+                />
+              );
+            } else if (isSilhouette) {
+              return (
+                <img 
+                  src="images/silhouette.svg" 
+                  alt="Silhouette" 
+                  className="w-8 h-8 mx-auto" 
+                  style={{width: '40px', height: '40px'}}
+                  onError={(e) => {
+                    e.target.style.display = 'none';
+                    e.target.nextSibling.style.display = 'inline';
+                  }}
+                />
+              );
+            }
+            
+            // Default to Nuke
+            return (
+              <img 
+                src="images/nukex.svg" 
+                alt="Nuke" 
+                className="w-6 h-6 mx-auto" 
+                style={{width: '24px', height: '24px'}}
+                onError={(e) => {
+                  e.target.style.display = 'none';
+                  e.target.nextSibling.style.display = 'inline';
+                }}
+              />
+            );
+          };
+
+          // Get batches count for a job
+          const getBatchCount = (job) => {
+            if (job.workerDetails?.batch_details) {
+              return job.workerDetails.batch_details.length;
+            }
+            // Estimate batches from frame range and batch size
+            if (job.frame_range && job.batch_size) {
+              const frames = job.frame_range.split('-');
+              if (frames.length === 2) {
+                const totalFrames = parseInt(frames[1]) - parseInt(frames[0]) + 1;
+                return Math.ceil(totalFrames / job.batch_size);
+              }
+            }
+            return 'N/A';
+          };
+
+          const showJobDetails = async (job) => {
+            const workerDetails = await fetchJobWorkerDetails(job.id);
+            setSelectedJob({ ...job, workerDetails });
+          };
+
+          const showWorkerDetails = (worker) => {
+            setSelectedWorker(worker);
+          };
+
+          // Update executable path when renderer changes
+          useEffect(() => {
+            if (config && jobForm.renderer) {
+              const version = jobForm.renderer === 'nuke' ? jobForm.nukeVersion : jobForm.silhouetteVersion;
+              const path = rendererPaths[jobForm.renderer]?.[version] || '';
+              setJobForm(prev => ({ ...prev, executablePath: path }));
+            }
+          }, [jobForm.renderer, jobForm.nukeVersion, jobForm.silhouetteVersion, config, rendererPaths]);
+
+          // Auto refresh for performance monitoring (2s refresh)
+          useEffect(() => {
+            fetchConfig();
+            fetchJobs();
+            fetchWorkers();
+            const interval = setInterval(() => {
+              fetchJobs();
+              fetchWorkers();
+              setLastUpdate(new Date().toLocaleTimeString());
+            }, 2000);  // 2s refresh for faster updates
+            return () => clearInterval(interval);
+          }, []);
+
+          // Update select all states when selection changes
+          useEffect(() => {
+            const allSelected = jobs.length > 0 && jobs.every(job => job.selected);
+            setSelectAllJobsChecked(allSelected);
+          }, [jobs.length, ...jobs.map(job => job.selected)]);
+
+          useEffect(() => {
+            const allSelected = workers.length > 0 && workers.every(worker => worker.selected);
+            setSelectAllWorkersChecked(allSelected);
+          }, [workers.length, ...workers.map(worker => worker.selected)]);
+
+          // Statistics
+          const onlineWorkers = workers.filter(w => w.status === 'online').length;
+          const runningJobs = jobs.filter(j => j.status === 'running').length;
+          const completedJobs = jobs.filter(j => j.status === 'completed').length;
+          
+          // Pagination constants
+          const JOBS_PER_PAGE = 10;
+          const totalJobPages = Math.ceil(jobs.length / JOBS_PER_PAGE);
+          const paginatedJobs = jobs.slice(jobPage * JOBS_PER_PAGE, (jobPage + 1) * JOBS_PER_PAGE);
+
+          return (
+            <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100">
+              {/* Header with performance indicator */}
+              <div className="bg-white shadow-sm border-b">
+                <div className="max-w-7xl mx-auto px-4 py-4">
+                  <div className="flex justify-between items-center">
+                    <div className="flex items-center space-x-4">
+                      <h1 className="text-2xl font-bold text-gray-900">RenderFarm Professional</h1>
+                    </div>
+                    <div className="flex items-center space-x-4">
+                      <div className="text-sm">
+                        Workers: <span className={`font-semibold ${onlineWorkers > 0 ? 'text-green-600 status-online' : 'text-red-600'}`}>{onlineWorkers}</span>/20 online
+                      </div>
+                      <div className="text-sm">
+                        Running Jobs: <span className="font-semibold text-blue-600">{runningJobs}</span>
+                      </div>
+                      <div className={`px-2 py-1 rounded text-xs font-medium ${
+                        serverStatus === 'online' ? 'bg-green-100 text-green-800' : 
+                        serverStatus === 'offline' ? 'bg-red-100 text-red-800' : 
+                        'bg-yellow-100 text-yellow-800'
+                      }`}>
+                        Server: {serverStatus}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Tabs */}
+              <div className="max-w-7xl mx-auto px-4">
+                <nav className="flex space-x-8 pt-4">
+                  {[
+                    { id: 'launch', name: 'Launch Options' },
+                    { id: 'jobs', name: 'Job Monitor' },
+                    { id: 'workers', name: 'Worker Nodes' }
+                  ].map(tab => (
+                    <button
+                      key={tab.id}
+                      onClick={() => setActiveTab(tab.id)}
+                      className={`px-6 py-3 border-b-2 font-medium text-sm btn-hover ${
+                        activeTab === tab.id
+                          ? 'border-blue-500 text-blue-600'
+                          : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                      }`}
+                    >
+                      {tab.name}
+                    </button>
+                  ))}
+                </nav>
+              </div>
+
+              {/* Content */}
+              <div className="max-w-7xl mx-auto px-4 py-6">
+                {activeTab === 'launch' && (
+                  <div className="space-y-6">
+                    {/* Performance Notice */}
+                    <div className="bg-gradient-to-r from-blue-50 to-green-50 border border-blue-200 rounded-lg p-4">
+                      <div className="flex items-center">
+                        <div className="flex-shrink-0">
+                          <span className="text-2xl">⚡</span>
+                        </div>
+                        <div className="ml-3">
+                          <h3 className="text-sm font-medium text-blue-800">High-Performance Mode Active</h3>
+                          <p className="text-sm text-blue-700">
+                           
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Server Details - ALL FEATURES PRESERVED */}
+                    <div className="bg-white rounded-lg shadow card p-6">
+                      <h3 className="text-lg font-medium text-gray-900 mb-4">Render Farm Details</h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700">Queue Server (Redis)</label>
+                          <input
+                            type="text"
+                            value={serverInfo ? `${serverInfo.server_ip}:${serverInfo.server_port}` : window.location.host}
+                            readOnly
+                            className="mt-1 block w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-md text-gray-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700">Shared Storage</label>
+                          <input
+                            type="text"
+                            value={config?.paths?.networkShare || jobForm.networkShare}
+                            readOnly
+                            className="mt-1 block w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-md text-gray-500"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Renderer Selection - ALL FEATURES PRESERVED */}
+                    <div className="bg-white rounded-lg shadow card p-6">
+                      <h3 className="text-lg font-medium text-gray-900 mb-4">Renderer Selection</h3>
+                      
+                      <div className="flex justify-center space-x-8 mb-6">
+                        <label className="flex items-center cursor-pointer">
+                          <input
+                            type="radio"
+                            value="nuke"
+                            checked={jobForm.renderer === 'nuke'}
+                            onChange={(e) => setJobForm({...jobForm, renderer: e.target.value})}
+                            className="mr-2"
+                          />
+                          <span className="font-medium">Nuke</span>
+                        </label>
+                        <label className="flex items-center cursor-pointer">
+                          <input
+                            type="radio"
+                            value="silhouette"
+                            checked={jobForm.renderer === 'silhouette'}
+                            onChange={(e) => setJobForm({...jobForm, renderer: e.target.value})}
+                            className="mr-2"
+                          />
+                          <span className="font-medium">Silhouette</span>
+                        </label>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        {jobForm.renderer === 'nuke' ? (
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700">Nuke Version</label>
+                            <select
+                              value={jobForm.nukeVersion}
+                              onChange={(e) => setJobForm({...jobForm, nukeVersion: e.target.value})}
+                              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md form-input"
+                            >
+                              {Object.keys(rendererPaths.nuke || {}).map(version => (
+                                <option key={version} value={version}>{version}</option>
+                              ))}
+                            </select>
+                          </div>
+                        ) : (
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700">Silhouette Version</label>
+                            <select
+                              value={jobForm.silhouetteVersion}
+                              onChange={(e) => setJobForm({...jobForm, silhouetteVersion: e.target.value})}
+                              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md form-input"
+                            >
+                              {Object.keys(rendererPaths.silhouette || {}).map(version => (
+                                <option key={version} value={version}>{version}</option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+                        
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700">Executable Path</label>
+                          <input
+                            type="text"
+                            value={jobForm.executablePath}
+                            onChange={(e) => setJobForm({...jobForm, executablePath: e.target.value})}
+                            className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md form-input"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700">Project File *</label>
+                          <div className="flex">
+                            <input
+                              type="text"
+                              value={jobForm.projectFile}
+                              onChange={(e) => {
+                                const projectFile = e.target.value;
+                                const fileName = projectFile.split(/[\\\/]/).pop()?.split('.')[0] || '';
+                                setJobForm({
+                                  ...jobForm, 
+                                  projectFile: projectFile,
+                                  jobTitle: fileName
+                                });
+                              }}
+                              placeholder="Enter full network path to project file"
+                              className="flex-1 px-3 py-2 border border-gray-300 rounded-md form-input"
+                            />
+                            <input
+                              type="file"
+                              ref={fileInputRef}
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) {
+                                  const fileName = file.name.split('.')[0] || '';
+                                  setJobForm({
+                                    ...jobForm, 
+                                    projectFile: file.name,
+                                    jobTitle: fileName
+                                  });
+                                }
+                              }}
+                              className="hidden"
+                              accept=".nk,.sfx,.comp"
+                            />
+                          </div>
+                          <p className="text-xs text-gray-500 mt-1">
+                            Enter the full network path (e.g., \\server\projects\myfile.nk)
+                          </p>
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700">Job Title *</label>
+                          <input
+                            type="text"
+                            value={jobForm.jobTitle}
+                            onChange={(e) => setJobForm({...jobForm, jobTitle: e.target.value})}
+                            placeholder="Enter descriptive job name"
+                            className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md form-input"
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700">Frame Range *</label>
+                            <input
+                              type="text"
+                              value={jobForm.frameRange}
+                              onChange={(e) => setJobForm({...jobForm, frameRange: e.target.value})}
+                              placeholder="1-100 or 1-50,60-100"
+                              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md form-input"
+                            />
+                            <p className="text-xs text-gray-500 mt-1">
+                              Add - or , between ranges. ex: [1-20,22,35]
+                            </p>
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700">Batch Size</label>
+                            <div className="flex items-center space-x-2 mt-1">
+                              <input
+                                type="number"
+                                value={jobForm.batchSize}
+                                onChange={(e) => setJobForm({...jobForm, batchSize: parseInt(e.target.value)})}
+                                min="1"
+                                max="1000"
+                                className="block w-full px-3 py-2 border border-gray-300 rounded-md form-input"
+                              />
+                              <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium">1=FASTEST, 5-10=LARGE JOBS</span>
+                            </div>
+                            <p className="text-xs text-gray-500 mt-1">
+                              1 frame = maximum speed | 5-10 frames = better for 500+ frame jobs
+                            </p>
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700">Priority</label>
+                            <select
+                              value={jobForm.priority}
+                              onChange={(e) => setJobForm({...jobForm, priority: e.target.value})}
+                              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md form-input"
+                            >
+                              <option>Low</option>
+                              <option>Normal</option>
+                              <option>High</option>
+                              <option>Critical</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        {/* Path Management - ALL FEATURES PRESERVED */}
+                        <div className="border-t pt-4">
+                          <h4 className="text-md font-medium text-gray-900 mb-3">Path Management</h4>
+                          <div className="space-y-3">
+                            <label className="flex items-center cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={jobForm.enablePathTranslation}
+                                onChange={(e) => setJobForm({...jobForm, enablePathTranslation: e.target.checked})}
+                                className="mr-2"
+                              />
+                              <span className="font-medium">Enable Automatic Path Translation</span>
+                            </label>
+                            
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700">Network Share</label>
+                                <input
+                                  type="text"
+                                  value={jobForm.networkShare}
+                                  readOnly
+                                  className="mt-1 block w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-md text-gray-500"
+                                />
+                                <p className="text-xs text-gray-500 mt-1">Configured in web config</p>
+                              </div>
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700">Temp Directory</label>
+                                <input
+                                  type="text"
+                                  value={jobForm.tempDirectory}
+                                  readOnly
+                                  className="mt-1 block w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-md text-gray-500"
+                                />
+                                <p className="text-xs text-gray-500 mt-1">Configured in web config</p>
+                              </div>
+                            </div>
+                            
+                            <label className="flex items-center cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={jobForm.outputPathTranslate}
+                                onChange={(e) => setJobForm({...jobForm, outputPathTranslate: e.target.checked})}
+                                className="mr-2"
+                              />
+                              <span className="font-medium">Translate output paths</span>
+                            </label>
+                          </div>
+                        </div>
+
+                        <div className="flex justify-end space-x-3 pt-4">
+                          <button
+                            onClick={() => setJobForm({
+                              ...jobForm,
+                              projectFile: '',
+                              jobTitle: '',
+                              frameRange: '',
+                              batchSize: 1,
+                              priority: 'High'
+                            })}
+                            className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 btn-hover"
+                          >
+                            Clear All
+                          </button>
+                          <button
+                            onClick={submitJob}
+                            className="px-6 py-2 bg-gradient-to-r from-blue-600 to-green-600 text-white rounded-md hover:from-blue-700 hover:to-green-700 font-medium btn-hover"
+                          >
+                            ⚡ Submit Job
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === 'jobs' && (
+                  <div className="space-y-6">
+                    {/* Job Stats & Controls - ALL FEATURES PRESERVED */}
+                    <div className="bg-white rounded-lg shadow card p-6">
+                      <div className="flex justify-between items-center">
+                        <div className="flex space-x-6">
+                          <div className="text-2xl font-bold text-gray-900">Jobs: {jobs.length}</div>
+                          <div className="text-blue-600">Running: {runningJobs}</div>
+                          <div className="text-green-600">Completed: {completedJobs}</div>
+                        </div>
+                        <div className="flex space-x-2">
+                          <button
+                            onClick={stopSelectedJobs}
+                            className="p-2 text-amber-600 hover:text-amber-800 btn-hover"
+                            title="Stop Selected Jobs"
+                          >
+                            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                              <rect x="6" y="6" width="12" height="12" rx="1"/>
+                            </svg>
+                          </button>
+                          <button
+                            onClick={resumeSelectedJobs}
+                            className="p-2 text-green-600 hover:text-green-800 btn-hover"
+                            title="Resume Selected Jobs"
+                          >
+                            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                              <path d="M8 5v14l11-7z"/>
+                            </svg>
+                          </button>
+                          <button
+                            onClick={deleteSelectedJobs}
+                            className="p-2 text-red-600 hover:text-red-800 btn-hover"
+                            title="Delete Selected Jobs"
+                          >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Jobs Table - ALL FEATURES PRESERVED */}
+                    <div className="bg-white rounded-lg shadow card overflow-hidden">
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-gray-200">
+                          <thead className="bg-gray-800">
+                            <tr>
+                              <th className="px-4 py-4 text-center text-xs font-medium text-white uppercase tracking-wider">#</th>
+                              <th className="px-6 py-4 text-left text-xs font-medium text-white uppercase tracking-wider">
+                                <input
+                                  type="checkbox"
+                                  checked={selectAllJobsChecked}
+                                  onChange={(e) => selectAllJobs(e.target.checked)}
+                                  className="h-4 w-4 text-blue-600 rounded"
+                                />
+                              </th>
+                              <th className="px-4 py-4 text-center text-xs font-medium text-white uppercase tracking-wider">App</th>
+                              <th className="px-6 py-4 text-left text-xs font-medium text-white uppercase tracking-wider">Title</th>
+                              <th className="px-6 py-4 text-left text-xs font-medium text-white uppercase tracking-wider">Status</th>
+                              <th className="px-6 py-4 text-left text-xs font-medium text-white uppercase tracking-wider">Progress</th>
+                              <th className="px-4 py-4 text-left text-xs font-medium text-white uppercase tracking-wider">Frames</th>
+                              <th className="px-4 py-4 text-center text-xs font-medium text-white uppercase tracking-wider">Batches</th>
+                              <th className="px-6 py-4 text-left text-xs font-medium text-white uppercase tracking-wider">Created</th>
+                            </tr>
+                          </thead>
+                          <tbody className="bg-white divide-y divide-gray-200">
+                            {paginatedJobs.map((job, index) => {
+                              const jobNumber = jobPage * JOBS_PER_PAGE + index + 1;
+                              return (
+                                <tr 
+                                  key={job.id} 
+                                  className={`${job.selected ? 'bg-blue-50 border-l-4 border-blue-500' : 'hover:bg-gray-50'} cursor-pointer table-row`}
+                                  onDoubleClick={() => showJobDetails(job)}
+                                >
+                                  <td className="px-4 py-4 text-center text-sm font-medium text-gray-900">
+                                    {jobNumber}
+                                  </td>
+                                  <td className="px-6 py-4">
+                                    <input
+                                      type="checkbox"
+                                      checked={job.selected || false}
+                                      onChange={() => toggleJobSelection(job.id)}
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="h-4 w-4 text-blue-600 rounded"
+                                    />
+                                  </td>
+                                <td className="px-4 py-4 text-center">
+                                  {getAppIcon(job.renderer, job.title)}
+                                  <span className="text-xs font-medium text-gray-600" style={{display: 'none'}}>
+                                    {job.renderer === 'nuke' ? 'NK' : 'SI'}
+                                  </span>
+                                </td>
+                                <td className="px-6 py-4 text-sm text-gray-900 font-medium">{job.title || 'Untitled'}</td>
+                                <td className="px-6 py-4">
+                                  <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                                    job.status === 'completed' ? 'bg-green-100 text-green-800' :
+                                    job.status === 'running' ? 'bg-yellow-100 text-yellow-800' :
+                                    job.status === 'failed' ? 'bg-red-100 text-red-800' :
+                                    'bg-gray-100 text-gray-800'
+                                  }`}>
+                                    {job.status?.toUpperCase() || 'UNKNOWN'}
+                                  </span>
+                                </td>
+                                <td className="px-6 py-4">
+                                  <div className="flex items-center">
+                                    <div className="flex-1 bg-gray-200 rounded-full h-2 mr-2">
+                                      <div
+                                        className={`h-2 rounded-full progress-bar ${
+                                          job.progress >= 100 ? 'bg-green-500' : 'bg-blue-500'
+                                        }`}
+                                        style={{ width: `${Math.min(job.progress || 0, 100)}%` }}
+                                      />
+                                    </div>
+                                    <span className="text-sm text-gray-600 font-medium">
+                                      {(job.progress || 0).toFixed(1)}%
+                                    </span>
+                                  </div>
+                                </td>
+                                <td className="px-4 py-4 text-sm text-gray-900 font-mono">{job.frame_range || 'N/A'}</td>
+                                <td className="px-4 py-4 text-sm text-gray-900 text-center">
+                                  {getBatchCount(job)}
+                                </td>
+                                <td className="px-6 py-4 text-sm text-gray-500">
+                                  {job.created_at ? new Date(job.created_at).toLocaleDateString() : 'N/A'}
+                                </td>
+                              </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                      {jobs.length === 0 && (
+                        <div className="text-center py-12 text-gray-500">
+                          <div className="text-4xl mb-4">📋</div>
+                          <h3 className="text-lg font-medium mb-2">No jobs found</h3>
+                          <p>Submit your first optimized job from Launch Options tab.</p>
+                        </div>
+                      )}
+                      
+                      {/* Job Pagination */}
+                      {totalJobPages > 1 && (
+                        <div className="px-6 py-4 bg-gray-50 border-t flex items-center justify-between">
+                          <div className="text-sm text-gray-700">
+                            Showing {jobPage * JOBS_PER_PAGE + 1} to {Math.min((jobPage + 1) * JOBS_PER_PAGE, jobs.length)} of {jobs.length} jobs
+                          </div>
+                          <div className="flex space-x-1">
+                            <button
+                              onClick={() => setJobPage(Math.max(0, jobPage - 1))}
+                              disabled={jobPage === 0}
+                              className={`px-3 py-2 text-sm rounded ${
+                                jobPage === 0
+                                  ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                                  : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
+                              }`}
+                            >
+                              Previous
+                            </button>
+                            {Array.from({ length: totalJobPages }, (_, i) => (
+                              <button
+                                key={i}
+                                onClick={() => setJobPage(i)}
+                                className={`px-3 py-2 text-sm rounded ${
+                                  i === jobPage
+                                    ? 'bg-blue-600 text-white'
+                                    : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
+                                }`}
+                              >
+                                {i + 1}
+                              </button>
+                            ))}
+                            <button
+                              onClick={() => setJobPage(Math.min(totalJobPages - 1, jobPage + 1))}
+                              disabled={jobPage === totalJobPages - 1}
+                              className={`px-3 py-2 text-sm rounded ${
+                                jobPage === totalJobPages - 1
+                                  ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                                  : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
+                              }`}
+                            >
+                              Next
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="text-sm text-gray-500 bg-gray-50 rounded p-3">
+                      Last updated: <span className="font-medium">{lastUpdate}</span> | 
+                      <span className="font-medium"> Double-click a job</span> to view worker assignments |
+                      <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium ml-2">2s refresh rate</span>
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === 'workers' && (
+                  <div className="space-y-6">
+                    {/* Worker Stats & Controls - ALL FEATURES PRESERVED */}
+                    <div className="bg-white rounded-lg shadow card p-6">
+                      <div className="flex justify-between items-center">
+                        <div className="flex space-x-6">
+                          <div className="text-2xl font-bold text-gray-900">Workers: {workers.length}</div>
+                          <div className="text-green-600">Online: {onlineWorkers}</div>
+                          <div className="text-yellow-600">Busy: {workers.filter(w => w.current_job_id && w.current_job_id !== 'Idle').length}</div>
+                        </div>
+                        <div className="flex space-x-2">
+                          <button
+                            onClick={stopSelectedWorkers}
+                            className="p-2 text-amber-600 hover:text-amber-800 btn-hover"
+                            title="Stop Selected Workers"
+                          >
+                            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                              <rect x="6" y="6" width="12" height="12" rx="1"/>
+                            </svg>
+                          </button>
+                          <button
+                            onClick={resumeSelectedWorkers}
+                            className="p-2 text-green-600 hover:text-green-800 btn-hover"
+                            title="Resume Selected Workers"
+                          >
+                            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                              <path d="M8 5v14l11-7z"/>
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Workers Table - ALL FEATURES PRESERVED */}
+                    <div className="bg-white rounded-lg shadow card overflow-hidden">
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-gray-200">
+                          <thead className="bg-gray-800">
+                            <tr>
+                              <th className="px-6 py-4 text-left text-xs font-medium text-white uppercase tracking-wider">
+                                <input
+                                  type="checkbox"
+                                  checked={selectAllWorkersChecked}
+                                  onChange={(e) => selectAllWorkers(e.target.checked)}
+                                  className="h-4 w-4 text-green-600 rounded"
+                                />
+                              </th>
+                              <th className="px-6 py-4 text-left text-xs font-medium text-white uppercase tracking-wider">Hostname</th>
+                              <th className="px-6 py-4 text-left text-xs font-medium text-white uppercase tracking-wider">IP Address</th>
+                              <th className="px-6 py-4 text-left text-xs font-medium text-white uppercase tracking-wider">Status</th>
+                              <th className="px-6 py-4 text-left text-xs font-medium text-white uppercase tracking-wider">Current Job</th>
+                              <th className="px-6 py-4 text-left text-xs font-medium text-white uppercase tracking-wider">CPU Cores</th>
+                              <th className="px-6 py-4 text-left text-xs font-medium text-white uppercase tracking-wider">Last Seen</th>
+                            </tr>
+                          </thead>
+                          <tbody className="bg-white divide-y divide-gray-200">
+                            {workers.map((worker) => (
+                              <tr 
+                                key={worker.id} 
+                                className={`${worker.selected ? 'bg-green-50 border-l-4 border-green-500' : 'hover:bg-gray-50'} cursor-pointer table-row`}
+                                onDoubleClick={() => showWorkerDetails(worker)}
+                              >
+                                <td className="px-6 py-4">
+                                  <input
+                                    type="checkbox"
+                                    checked={worker.selected || false}
+                                    onChange={() => toggleWorkerSelection(worker.id)}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="h-4 w-4 text-green-600 rounded"
+                                  />
+                                </td>
+                                <td className="px-6 py-4 text-sm text-gray-900 font-medium">
+                                  {worker.hostname || worker.id.replace('worker_', '')}
+                                </td>
+                                <td className="px-6 py-4 text-sm text-gray-900 font-mono">{worker.ip_address}</td>
+                                <td className="px-6 py-4">
+                                  <div className="flex items-center space-x-2">
+                                    <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                                      worker.status === 'online' ? 'bg-green-100 text-green-800' : 
+                                      worker.status === 'stopped' ? 'bg-yellow-100 text-yellow-800' :
+                                      'bg-red-100 text-red-800'
+                                    }`}>
+                                      {worker.status?.toUpperCase() || 'UNKNOWN'}
+                                    </span>
+                                    {worker.status === 'online' && (
+                                      <span className="px-2 py-1 bg-green-100 text-green-800 rounded text-xs font-medium">ACTIVE</span>
+                                    )}
+                                  </div>
+                                </td>
+                                <td className="px-6 py-4 text-sm text-gray-900">
+                                  {worker.current_job_id && worker.current_job_id !== 'Idle' ? 
+                                    <span className="font-medium text-blue-600">{worker.current_job_id}</span> : 
+                                    <span className="text-gray-500">Idle</span>
+                                  }
+                                </td>
+                                <td className="px-6 py-4 text-sm text-gray-900">
+                                  <span className="font-medium">{worker.cpu_count || 0}</span> cores
+                                </td>
+                                <td className="px-6 py-4 text-sm text-gray-500">
+                                  {worker.last_heartbeat ? new Date(worker.last_heartbeat).toLocaleTimeString() : 'Never'}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      {workers.length === 0 && (
+                        <div className="text-center py-12 text-gray-500">
+                          <div className="text-4xl mb-4">💻</div>
+                          <h3 className="text-lg font-medium mb-2">No workers connected</h3>
+                          <p>Start optimized worker nodes to see them here.</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Enhanced Job Details Modal - UI.jsx Style */}
+              {selectedJob && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 modal-backdrop flex items-center justify-center z-50 p-4">
+                  <div className="bg-white rounded-lg shadow-xl max-w-6xl w-full max-h-full overflow-auto">
+                    <div className="p-6 border-b bg-gradient-to-r from-blue-600 to-purple-600">
+                      <div className="flex justify-between items-center">
+                        <div>
+                          <h2 className="text-xl font-bold text-white">Job Worker Assignments</h2>
+                          <p className="text-blue-100 text-sm">{selectedJob.title}</p>
+                        </div>
+                        <button
+                          onClick={() => setSelectedJob(null)}
+                          className="text-white hover:text-gray-200 text-2xl"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+                    <div className="p-6 space-y-6">
+                      {/* Job Summary */}
+                      <div className="bg-gray-50 rounded-lg p-4">
+                        <h3 className="text-lg font-medium text-gray-900 mb-3">Job Summary</h3>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                          <div>
+                            <label className="text-sm font-medium text-gray-500">Job Title</label>
+                            <p className="font-medium">{selectedJob.title}</p>
+                          </div>
+                          <div>
+                            <label className="text-sm font-medium text-gray-500">Total Batches</label>
+                            <p className="font-medium">{selectedJob.workerDetails?.total_batches || 0}</p>
+                          </div>
+                          <div>
+                            <label className="text-sm font-medium text-gray-500">Workers Involved</label>
+                            <p className="font-medium">{selectedJob.workerDetails?.workers_involved || 0}</p>
+                          </div>
+                          <div>
+                            <label className="text-sm font-medium text-gray-500">Job Status</label>
+                            <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                              selectedJob.status === 'completed' ? 'bg-green-100 text-green-800' :
+                              selectedJob.status === 'running' ? 'bg-yellow-100 text-yellow-800' :
+                              selectedJob.status === 'failed' ? 'bg-red-100 text-red-800' :
+                              'bg-gray-100 text-gray-800'
+                            }`}>
+                              {selectedJob.status.toUpperCase()}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Overall Progress */}
+                        <div className="mt-4">
+                          <div className="flex justify-between text-sm mb-1">
+                            <span className="font-medium">Overall Progress</span>
+                            <span>{selectedJob.progress.toFixed(1)}%</span>
+                          </div>
+                          <div className="w-full bg-gray-200 rounded-full h-3">
+                            <div
+                              className={`h-3 rounded-full transition-all duration-500 ${
+                                selectedJob.progress >= 100 ? 'bg-green-500' : 'bg-blue-500'
+                              }`}
+                              style={{ width: `${Math.min(selectedJob.progress || 0, 100)}%` }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Tabs */}
+                      <div className="border-b border-gray-200">
+                        <nav className="-mb-px flex space-x-8">
+                          <button
+                            onClick={() => setJobStatsTab('workers')}
+                            className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                              jobStatsTab === 'workers'
+                                ? 'border-blue-500 text-blue-600'
+                                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                            }`}
+                          >
+                            Worker Assignments
+                          </button>
+                          <button
+                            onClick={() => setJobStatsTab('batches')}
+                            className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                              jobStatsTab === 'batches'
+                                ? 'border-blue-500 text-blue-600'
+                                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                            }`}
+                          >
+                            Batch Details
+                          </button>
+                          <button
+                            onClick={() => setJobStatsTab('logs')}
+                            className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                              jobStatsTab === 'logs'
+                                ? 'border-blue-500 text-blue-600'
+                                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                            }`}
+                          >
+                            Logs
+                          </button>
+                        </nav>
+                      </div>
+
+                      {/* Tab Content */}
+                      {jobStatsTab === 'workers' && selectedJob.workerDetails?.worker_assignments && (
+                        <div>
+                          <h3 className="text-lg font-medium text-gray-900 mb-3">Worker Assignments</h3>
+                          <div className="overflow-x-auto">
+                            <table className="min-w-full divide-y divide-gray-200 bg-white rounded-lg shadow">
+                              <thead className="bg-gray-800">
+                                <tr>
+                                  <th className="px-4 py-3 text-left text-xs font-medium text-white uppercase">Worker ID</th>
+                                  <th className="px-4 py-3 text-left text-xs font-medium text-white uppercase">Frames Total</th>
+                                  <th className="px-4 py-3 text-left text-xs font-medium text-white uppercase">Frames Done</th>
+                                  <th className="px-4 py-3 text-left text-xs font-medium text-white uppercase">Batches</th>
+                                  <th className="px-4 py-3 text-left text-xs font-medium text-white uppercase">Running</th>
+                                  <th className="px-4 py-3 text-left text-xs font-medium text-white uppercase">Completed</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-gray-200">
+                                {selectedJob.workerDetails.worker_assignments
+                                  .slice(workerAssignPage * 10, (workerAssignPage + 1) * 10)
+                                  .map((worker) => (
+                                  <tr key={worker.worker_id} className="hover:bg-gray-50">
+                                    <td className="px-4 py-3 text-sm font-medium text-blue-600">{worker.worker_id}</td>
+                                    <td className="px-4 py-3 text-sm">{worker.frames_total}</td>
+                                    <td className="px-4 py-3 text-sm font-medium text-green-600">{worker.frames_completed}</td>
+                                    <td className="px-4 py-3 text-sm">{worker.batches.length}</td>
+                                    <td className="px-4 py-3 text-sm text-yellow-600">{worker.status_counts.running}</td>
+                                    <td className="px-4 py-3 text-sm text-green-600">{worker.status_counts.completed}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                          {/* Worker Assignment Pagination */}
+                          {selectedJob.workerDetails.worker_assignments.length > 10 && (
+                            <div className="flex justify-center space-x-2 mt-4">
+                              <button
+                                onClick={() => setWorkerAssignPage(Math.max(0, workerAssignPage - 1))}
+                                disabled={workerAssignPage === 0}
+                                className="px-3 py-1 text-sm border border-gray-300 rounded disabled:opacity-50"
+                              >
+                                ←
+                              </button>
+                              <button
+                                onClick={() => setWorkerAssignPage(Math.min(Math.floor(selectedJob.workerDetails.worker_assignments.length / 10), workerAssignPage + 1))}
+                                disabled={workerAssignPage >= Math.floor(selectedJob.workerDetails.worker_assignments.length / 10)}
+                                className="px-3 py-1 text-sm border border-gray-300 rounded disabled:opacity-50"
+                              >
+                                →
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {jobStatsTab === 'batches' && selectedJob.workerDetails?.batch_details && (
+                        <div>
+                          <div className="flex justify-between items-center mb-3">
+                            <h3 className="text-lg font-medium text-gray-900">Batch Details</h3>
+                            <div className="flex space-x-2">
+                              <input
+                                type="text"
+                                placeholder="Search by worker..."
+                                value={batchSearchTerm}
+                                onChange={(e) => setBatchSearchTerm(e.target.value)}
+                                className="px-3 py-1 text-sm border border-gray-300 rounded"
+                              />
+                              <select
+                                value={batchStatusFilter}
+                                onChange={(e) => setBatchStatusFilter(e.target.value)}
+                                className="px-3 py-1 text-sm border border-gray-300 rounded"
+                              >
+                                <option value="all">All Status</option>
+                                <option value="running">Running</option>
+                                <option value="completed">Completed</option>
+                                <option value="failed">Failed</option>
+                                <option value="pending">Pending</option>
+                              </select>
+                            </div>
+                          </div>
+                          <div className="overflow-x-auto">
+                            <table className="min-w-full divide-y divide-gray-200 bg-white rounded-lg shadow">
+                              <thead className="bg-gray-800">
+                                <tr>
+                                  <th className="px-4 py-3 text-left">
+                                    <input 
+                                      type="checkbox" 
+                                      className="h-4 w-4 text-blue-600 rounded border-2" 
+                                      onChange={(e) => selectAllBatches(e.target.checked, selectedJob.workerDetails.batch_details)}
+                                      checked={selectedJob.workerDetails?.batch_details && selectedJobBatches.size === selectedJob.workerDetails.batch_details.length && selectedJob.workerDetails.batch_details.length > 0}
+                                    />
+                                  </th>
+                                  <th className="px-4 py-3 text-left text-xs font-medium text-white uppercase">Batch #</th>
+                                  <th className="px-4 py-3 text-left text-xs font-medium text-white uppercase">Frame Range</th>
+                                  <th className="px-4 py-3 text-left text-xs font-medium text-white uppercase">Status</th>
+                                  <th className="px-4 py-3 text-left text-xs font-medium text-white uppercase">Worker ID</th>
+                                  <th className="px-4 py-3 text-left text-xs font-medium text-white uppercase">Started</th>
+                                  <th className="px-4 py-3 text-left text-xs font-medium text-white uppercase">Duration</th>
+                                  <th className="px-4 py-3 text-left text-xs font-medium text-white uppercase">Actions</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-gray-200">
+                                {selectedJob.workerDetails.batch_details
+                                  .filter(batch => {
+                                    const matchesSearch = !batchSearchTerm || batch.worker_id?.toLowerCase().includes(batchSearchTerm.toLowerCase());
+                                    const matchesStatus = batchStatusFilter === 'all' || batch.status === batchStatusFilter;
+                                    return matchesSearch && matchesStatus;
+                                  })
+                                  .sort((a, b) => {
+                                    const aNum = parseInt(a.batch_number) || 0;
+                                    const bNum = parseInt(b.batch_number) || 0;
+                                    return aNum - bNum;
+                                  })
+                                  .slice(batchDetailsPage * 10, (batchDetailsPage + 1) * 10)
+                                  .map((batch) => (
+                                  <tr key={batch.batch_id} className="hover:bg-gray-50">
+                                    <td className="px-4 py-3">
+                                      <input 
+                                        type="checkbox" 
+                                        className="h-4 w-4 text-blue-600 rounded border-2" 
+                                        checked={selectedJobBatches.has(batch.batch_id)}
+                                        onChange={() => toggleBatchSelection(batch.batch_id)}
+                                        onClick={(e) => e.stopPropagation()}
+                                      />
+                                    </td>
+                                    <td className="px-4 py-3 text-sm font-medium">#{batch.batch_number}</td>
+                                    <td className="px-4 py-3 text-sm font-mono">{batch.frame_range}</td>
+                                    <td className="px-4 py-3">
+                                      <span className={`px-2 py-1 text-xs rounded-full font-medium ${
+                                        batch.status === 'completed' ? 'bg-green-100 text-green-800' :
+                                        batch.status === 'running' ? 'bg-yellow-100 text-yellow-800' :
+                                        batch.status === 'failed' ? 'bg-red-100 text-red-800' :
+                                        'bg-gray-100 text-gray-800'
+                                      }`}>
+                                        {batch.status}
+                                      </span>
+                                    </td>
+                                    <td className="px-4 py-3 text-sm text-blue-600">{batch.worker_id || 'Unassigned'}</td>
+                                    <td className="px-4 py-3 text-sm text-gray-500">
+                                      {batch.started_at ? new Date(batch.started_at).toLocaleTimeString() : '-'}
+                                    </td>
+                                    <td className="px-4 py-3 text-sm text-gray-500">
+                                      {batch.completed_at && batch.started_at ? 
+                                        `${Math.round((new Date(batch.completed_at) - new Date(batch.started_at)) / (1000 * 60))}m` : 
+                                        batch.started_at ? 'Running...' : '-'
+                                      }
+                                    </td>
+                                    <td className="px-4 py-3">
+                                      <div className="flex space-x-2">
+                                        {batch.status === 'failed' && (
+                                          <button 
+                                            onClick={() => retryBatch(batch.full_batch_id)}
+                                            className="text-xs px-2 py-1 bg-orange-100 text-orange-800 rounded hover:bg-orange-200 font-medium"
+                                          >
+                                            Retry
+                                          </button>
+                                        )}
+                                        <button 
+                                          onClick={() => showBatchLogs(batch.full_batch_id, batch.worker_id)}
+                                          className="text-xs px-2 py-1 bg-blue-100 text-blue-800 rounded hover:bg-blue-200 font-medium"
+                                        >
+                                          Logs
+                                        </button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                          {/* Batch Details Pagination */}
+                          {(() => {
+                            const filteredBatches = selectedJob.workerDetails.batch_details.filter(batch => {
+                              const matchesSearch = !batchSearchTerm || batch.worker_id?.toLowerCase().includes(batchSearchTerm.toLowerCase());
+                              const matchesStatus = batchStatusFilter === 'all' || batch.status === batchStatusFilter;
+                              return matchesSearch && matchesStatus;
+                            });
+                            return filteredBatches.length > 10 && (
+                              <div className="flex justify-center space-x-2 mt-4">
+                                <button
+                                  onClick={() => setBatchDetailsPage(Math.max(0, batchDetailsPage - 1))}
+                                  disabled={batchDetailsPage === 0}
+                                  className="px-3 py-1 text-sm border border-gray-300 rounded disabled:opacity-50"
+                                >
+                                  ←
+                                </button>
+                                <button
+                                  onClick={() => setBatchDetailsPage(Math.min(Math.floor(filteredBatches.length / 10), batchDetailsPage + 1))}
+                                  disabled={batchDetailsPage >= Math.floor(filteredBatches.length / 10)}
+                                  className="px-3 py-1 text-sm border border-gray-300 rounded disabled:opacity-50"
+                                >
+                                  →
+                                </button>
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      )}
+
+                      {jobStatsTab === 'logs' && (
+                        <div>
+                          <h3 className="text-lg font-medium text-gray-900 mb-3">Job Logs</h3>
+                          <div className="bg-black text-green-400 p-4 rounded font-mono text-sm max-h-96 overflow-y-auto">
+                            <div>[{new Date().toISOString().slice(0, 19).replace('T', ' ')}] Job started: {selectedJob.title}</div>
+                            <div>[{new Date().toISOString().slice(0, 19).replace('T', ' ')}] Initializing render nodes...</div>
+                            {selectedJob.workerDetails?.batch_details && 
+                              selectedJob.workerDetails.batch_details
+                                .sort((a, b) => {
+                                  const aNum = parseInt(a.batch_number) || 0;
+                                  const bNum = parseInt(b.batch_number) || 0;
+                                  return aNum - bNum;
+                                })
+                                .slice(0, 15)
+                                .map((batch, index) => (
+                              <div key={index}>
+                                <div>[{batch.started_at ? new Date(batch.started_at).toISOString().slice(0, 19).replace('T', ' ') : 'pending'}] 
+                                  Batch {batch.batch_number} {batch.worker_id ? `assigned to ${batch.worker_id.replace('worker_', '')}` : 'pending assignment'}</div>
+                                {batch.completed_at && (
+                                  <div>[{new Date(batch.completed_at).toISOString().slice(0, 19).replace('T', ' ')}] 
+                                    Batch {batch.batch_number} {batch.status === 'completed' ? 'completed' : 'failed'}</div>
+                                )}
+                              </div>
+                            ))}
+                            {selectedJob.status === 'running' && (
+                              <div>[{new Date().toISOString().slice(0, 19).replace('T', ' ')}] Processing in progress...</div>
+                            )}
+                            {selectedJob.error && (
+                              <div className="text-red-400">[{new Date().toISOString().slice(0, 19).replace('T', ' ')}] ERROR: {selectedJob.error}</div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {selectedJob.error && (
+                        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                          <div className="flex items-center">
+                            <div className="flex-shrink-0">
+                              <span className="text-red-400">⚠️</span>
+                            </div>
+                            <div className="ml-3">
+                              <h3 className="text-sm font-medium text-red-800">Error Details</h3>
+                              <p className="text-sm text-red-700 mt-1">{selectedJob.error}</p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="p-6 border-t bg-gray-50 flex justify-between">
+                      <div className="text-sm text-gray-500">
+                        💡 <span className="font-medium">Tip:</span> Use tabs to explore worker assignments, batch details, and logs
+                      </div>
+                      <div className="flex space-x-3">
+                        <button 
+                          onClick={() => setSelectedJob(null)}
+                          className="px-6 py-2 bg-gray-300 text-gray-700 rounded hover:bg-gray-400 font-medium"
+                        >
+                          Close
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Worker Details Modal - ALL FEATURES PRESERVED */}
+              {selectedWorker && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 modal-backdrop flex items-center justify-center z-50 p-4">
+                  <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-full overflow-auto">
+                    <div className="p-6 border-b">
+                      <div className="flex justify-between items-center">
+                        <h2 className="text-xl font-bold text-gray-900">Worker Details</h2>
+                        <button
+                          onClick={() => setSelectedWorker(null)}
+                          className="text-gray-400 hover:text-gray-600 btn-hover"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+                    
+                    <div className="p-6 space-y-6">
+                      {/* Worker Summary */}
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="text-sm font-medium text-gray-500">Worker ID</label>
+                          <p className="font-medium">{selectedWorker.id}</p>
+                        </div>
+                        <div>
+                          <label className="text-sm font-medium text-gray-500">Status</label>
+                          <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                            selectedWorker.status === 'online' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                          }`}>
+                            {selectedWorker.status.toUpperCase()}
+                          </span>
+                        </div>
+                        <div>
+                          <label className="text-sm font-medium text-gray-500">Hostname</label>
+                          <p className="font-medium">{selectedWorker.hostname}</p>
+                        </div>
+                        <div>
+                          <label className="text-sm font-medium text-gray-500">IP Address</label>
+                          <p className="font-mono">{selectedWorker.ip_address}</p>
+                        </div>
+                        <div>
+                          <label className="text-sm font-medium text-gray-500">CPU Cores</label>
+                          <p className="font-medium">{selectedWorker.cpu_count}</p>
+                        </div>
+                        <div>
+                          <label className="text-sm font-medium text-gray-500">Last Heartbeat</label>
+                          <p>{selectedWorker.last_heartbeat ? new Date(selectedWorker.last_heartbeat).toLocaleString() : 'Never'}</p>
+                        </div>
+                      </div>
+
+                      {/* Current Job */}
+                      <div>
+                        <label className="text-sm font-medium text-gray-500">Current Job</label>
+                        <p className="font-mono text-sm">
+                          {selectedWorker.current_job_id && selectedWorker.current_job_id !== 'Idle' ? 
+                            <span className="font-medium text-blue-600">{selectedWorker.current_job_id}</span> : 
+                            <span className="text-gray-500">Idle</span>
+                          }
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="p-6 border-t bg-gray-50 flex justify-end space-x-3">
+                      {selectedWorker.status === 'online' && (
+                        <button 
+                          onClick={async () => {
+                            try {
+                              const response = await fetch(`${API_BASE}/workers/${selectedWorker.id}/stop`, {
+                                method: 'POST'
+                              });
+                              if (response.ok) {
+                                alert('Worker stopped successfully');
+                                setSelectedWorker(null);
+                                fetchWorkers();
+                              }
+                            } catch (error) {
+                              alert('Error stopping worker: ' + error.message);
+                            }
+                          }}
+                          className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 btn-hover"
+                        >
+                          Stop Worker
+                        </button>
+                      )}
+                      <button 
+                        onClick={() => setSelectedWorker(null)}
+                        className="px-4 py-2 bg-gray-300 text-gray-700 rounded hover:bg-gray-400 btn-hover"
+                      >
+                        Close
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+            </div>
+          );
+        };
+
+        // Batch-specific functions
+        window.showBatchLogs = async (batchId, workerId) => {
+          try {
+            // Get batch logs from server
+            const API_BASE = window.location.origin + '/api';
+            console.log(`Fetching logs from: ${API_BASE}/jobs/batch/${batchId}/logs`);
+            const response = await fetch(`${API_BASE}/jobs/batch/${batchId}/logs`);
+            
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            
+            const logs = await response.json();
+            console.log('Logs response:', logs);
+            
+            // Create modal HTML
+            const modalHTML = `
+              <div style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; display: flex; justify-content: center; align-items: center;" id="logsModal">
+                <div style="background: white; border-radius: 8px; width: 80%; max-width: 800px; max-height: 80%; overflow: hidden; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);">
+                  <div style="padding: 20px; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                      <h3 style="font-size: 18px; font-weight: 600; color: #111827;">Batch Logs</h3>
+                      <p style="color: #6b7280; margin: 4px 0 0 0;">Batch: ${batchId} | Worker: ${workerId}</p>
+                    </div>
+                    <button onclick="document.getElementById('logsModal').remove()" style="padding: 8px; background: #f3f4f6; border: none; border-radius: 4px; cursor: pointer; color: #374151;">×</button>
+                  </div>
+                  <div style="padding: 20px; max-height: 400px; overflow-y: auto; background: #1f2937; color: #f9fafb; font-family: monospace; font-size: 12px;">
+                    <pre style="margin: 0; white-space: pre-wrap;">${logs.logs || 'No logs available for this batch.'}</pre>
+                  </div>
+                  <div style="padding: 20px; border-top: 1px solid #e5e7eb; display: flex; justify-content: end;">
+                    <button onclick="document.getElementById('logsModal').remove()" style="padding: 8px 16px; background: #6b7280; color: white; border: none; border-radius: 4px; cursor: pointer;">Close</button>
+                  </div>
+                </div>
+              </div>
+            `;
+            
+            // Add modal to document
+            document.body.insertAdjacentHTML('beforeend', modalHTML);
+          } catch (error) {
+            alert('Error loading batch logs: ' + error.message);
+          }
+        };
+
+        window.retryBatch = async (batchId) => {
+          if (!confirm(`Are you sure you want to retry batch ${batchId}?`)) {
+            return;
+          }
+          
+          try {
+            const API_BASE = window.location.origin + '/api';
+            const response = await fetch(`${API_BASE}/jobs/batch/${batchId}/retry`, {
+              method: 'POST'
+            });
+            
+            if (response.ok) {
+              alert('Batch retry queued successfully');
+              // Refresh the job details
+              if (window.selectedJob) {
+                await fetchJobDetails(window.selectedJob.id);
+              }
+            } else {
+              const errorData = await response.json();
+              alert('Error retrying batch: ' + (errorData.error || 'Unknown error'));
+            }
+          } catch (error) {
+            alert('Error retrying batch: ' + error.message);
+          }
+        };
+
+        // Render the app
+        ReactDOM.render(<RenderFarmUI />, document.getElementById('root'));
+    </script>
+</body>
+</html>

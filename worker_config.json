@@ -1,0 +1,47 @@
+{
+  "server": {
+    "url": "http://10.66.158.56:8080",
+    "timeout": 15
+  },
+  
+  "worker": {
+    "id": "auto_hostname",
+    "max_concurrent_jobs": 1,
+    "heartbeat_interval": 15,
+    "metrics_interval": 20
+  },
+  
+  "jobs": {
+    "timeout_per_frame": 900,
+    "retry_attempts": 2
+  },
+  
+  "performance": {
+    "asset_cache_gb": 32,
+    "use_ram_disk": true,
+    "local_temp_size_gb": 64,
+    "preload_common_assets": true,
+    "max_render_threads": 16
+  },
+  
+  "paths": {
+    "log_directory": "logs",
+    "local_cache": "C:\\render_cache"
+  },
+  
+  "resources": {
+    "max_memory_percent": 90,
+    "max_cpu_percent": 95
+  },
+  
+  "network": {
+    "connection_pool_size": 20,
+    "request_timeout": 15,
+    "asset_download_threads": 4
+  },
+  
+  "logging": {
+    "level": "INFO",
+    "file_path": "logs/worker.log"
+  }
+}

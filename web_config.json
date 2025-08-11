@@ -1,0 +1,25 @@
+{
+  "paths": {
+    "networkShare": "\\\\10.0.0.10\\temp\\IT\\Projects",
+    "tempDirectory": "\\\\10.0.0.10\\temp\\IT"
+  },
+  "renderers": {
+    "nuke": {
+      "Nuke 16": "C:\\Program Files\\Nuke16.0v4\\Nuke16.0.exe",
+      "Nuke 13.1.v2": "C:\\Program Files\\Nuke13.1v2\\Nuke13.1.exe"
+    },
+    "silhouette": {
+      "Silhouette 2023": "C:\\Program Files\\BorisFX\\Silhouette 2023.0\\sfxcmd.exe",
+      "Silhouette 15": "C:\\Program Files\\BorisFX\\Silhouette 15\\sfxcmd.exe"
+    }
+  },
+  "defaults": {
+    "renderer": "nuke",
+    "nukeVersion": "Nuke 16",
+    "silhouetteVersion": "Silhouette 2023",
+    "batchSize": 1,
+    "priority": "High",
+    "enablePathTranslation": true,
+    "outputPathTranslate": true
+  }
+}
