@@ -53,7 +53,16 @@
     "request_timeout": 30,
     "asset_download_threads": 4
   },
-  
+
+  "redis": {
+    "enabled": false,
+    "host": "10.0.0.59",
+    "port": 6379,
+    "connection_timeout": 5,
+    "max_retry_attempts": 3,
+    "comment": "Redis instant notifications (optional) - only enable if Redis is exposed on network. Workers work fine with HTTP polling when disabled."
+  },
+
   "logging": {
     "level": "INFO",
     "file_path": "logs/worker.log"

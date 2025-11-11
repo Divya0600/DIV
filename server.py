@@ -1005,15 +1005,87 @@ class RedisWorkerServer:
             print(f"ERROR: Failed to load config: {e}")
             raise
     
+    def start_cleanup_thread(self):
+        """Start background cleanup thread"""
+        def cleanup_worker():
+            """Background worker that runs periodic cleanup"""
+            # Get cleanup interval from config (default: 5 minutes)
+            jobs_config = self.config.get('jobs', {})
+            cleanup_interval_minutes = jobs_config.get('cleanup_interval_minutes', 5)
+            cleanup_interval = cleanup_interval_minutes * 60  # Convert to seconds
+            max_pending_warning = jobs_config.get('max_pending_batches_warning', 10000)
+            last_cleanup = 0
+
+            while not self._stop_cleanup:
+                try:
+                    current_time = time.time()
+
+                    # Run cleanup at configured interval
+                    if current_time - last_cleanup >= cleanup_interval:
+                        print(f"[CLEANUP] Starting periodic cleanup (interval: {cleanup_interval_minutes} minutes)...")
+
+                        # 1. Clean up stuck batches from offline workers
+                        stuck_count = redis_manager.cleanup_all_stuck_batches()
+                        if stuck_count > 0:
+                            print(f"[CLEANUP] Reset {stuck_count} stuck batches from offline workers")
+
+                        # 2. Clean up old completed jobs (if enabled in config)
+                        if jobs_config.get('auto_cleanup_completed', True):
+                            cleanup_days = jobs_config.get('cleanup_after_days', 7)
+                            deleted_count = redis_manager.cleanup_old_data(days_old=cleanup_days)
+                            if deleted_count > 0:
+                                print(f"[CLEANUP] Deleted {deleted_count} jobs older than {cleanup_days} days")
+
+                        # 3. Get Redis memory stats and health check
+                        stats = redis_manager.get_stats()
+                        redis_memory = stats.get('redis_memory', 'Unknown')
+                        pending_batches = stats.get('pending_batches', 0)
+                        total_jobs = stats.get('total_jobs', 0)
+                        online_workers = stats.get('online_workers', 0)
+
+                        connection_pool = stats.get('connection_pool', {})
+                        in_use_connections = connection_pool.get('in_use_connections', 'Unknown')
+                        max_connections = connection_pool.get('max_connections', 'Unknown')
+
+                        print(f"[CLEANUP] Redis memory: {redis_memory}, Jobs: {total_jobs}, Pending batches: {pending_batches}")
+                        print(f"[CLEANUP] Workers: {online_workers}, Connections: {in_use_connections}/{max_connections}")
+
+                        # Warn if too many pending batches
+                        if pending_batches > max_pending_warning:
+                            print(f"[WARNING] High number of pending batches: {pending_batches} (threshold: {max_pending_warning})")
+                            print(f"[WARNING] Consider increasing workers or checking for stuck jobs")
+
+                        last_cleanup = current_time
+                        print("[CLEANUP] Periodic cleanup completed\n")
+
+                    # Sleep for 30 seconds before checking again
+                    time.sleep(30)
+
+                except Exception as e:
+                    print(f"[ERROR] Cleanup thread error: {e}")
+                    time.sleep(60)  # Wait longer on error
+
+        # Start cleanup thread
+        self._stop_cleanup = False
+        self._cleanup_thread = threading.Thread(target=cleanup_worker, daemon=True)
+        self._cleanup_thread.start()
+
+        jobs_config = self.config.get('jobs', {})
+        cleanup_interval_minutes = jobs_config.get('cleanup_interval_minutes', 5)
+        print(f"[OK] Background cleanup thread started (runs every {cleanup_interval_minutes} minutes)")
+
     def start(self):
         """Start the Redis server"""
         host = self.config['host']
         port = self.config['port']
         server_address = (host, port)
-        
+
         # Record startup time for uptime tracking
         self._start_time = time.time()
-        
+
+        # Start background cleanup thread
+        self.start_cleanup_thread()
+
         try:
             # Create threaded server for better connection handling
             self.httpd = ThreadedHTTPServer(server_address, EnhancedAPIHandler)
@@ -1062,13 +1134,18 @@ class RedisWorkerServer:
     def stop(self):
         """Stop the server"""
         print("\n[STOP] Shutting down Redis server...")
-        
+
+        # Stop cleanup thread
+        if hasattr(self, '_stop_cleanup'):
+            self._stop_cleanup = True
+            print("[STOP] Stopping cleanup thread...")
+
         # Close Redis connection pool for clean shutdown
         try:
             redis_manager.close_connection_pool()
         except Exception as e:
             print(f"[WARNING] Error closing Redis connection pool: {e}")
-        
+
         if self.httpd:
             self.httpd.shutdown()
             self.httpd.server_close()
