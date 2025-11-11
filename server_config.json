@@ -15,7 +15,9 @@
     "max_concurrent_jobs": 1000,
     "default_batch_size": 10,
     "auto_cleanup_completed": true,
-    "cleanup_after_days": 7
+    "cleanup_after_days": 7,
+    "cleanup_interval_minutes": 5,
+    "max_pending_batches_warning": 10000
   },
   
   
