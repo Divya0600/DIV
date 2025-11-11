@@ -977,6 +977,13 @@ class HighPerformanceRenderWorker:
                 "connection_pool_size": 20,
                 "request_timeout": 5,
                 "asset_download_threads": 4
+            },
+            "redis": {
+                "enabled": False,  # Disabled by default for remote workers
+                "host": "localhost",
+                "port": 6379,
+                "connection_timeout": 5,
+                "max_retry_attempts": 3
             }
         }
         
@@ -1219,37 +1226,59 @@ class HighPerformanceRenderWorker:
         except Exception as e:
             logger.warning(f"[CLEANUP] Worker {self.worker_id}: Cleanup error (non-critical): {e}")
     
-    def _get_redis_connection(self):
-        """Get or create shared Redis connection with connection pooling"""
+    def _get_redis_connection(self, retry_attempt=0):
+        """Get or create shared Redis connection with connection pooling (non-recursive)"""
+        # Get Redis config from worker config
+        redis_config = self.config.get('redis', {})
+        redis_enabled = redis_config.get('enabled', False)
+        max_retry_attempts = redis_config.get('max_retry_attempts', 3)
+
+        # If Redis is disabled in config, skip connection entirely
+        if not redis_enabled:
+            if retry_attempt == 0:  # Only log once
+                logger.info(f"[REDIS_CONN] Worker {self.worker_id}: Redis instant notifications disabled in config (using HTTP polling)")
+            return False
+
+        # Check if we've exceeded max retries
+        if retry_attempt >= max_retry_attempts:
+            logger.warning(f"[REDIS_CONN] Worker {self.worker_id}: Max retry attempts ({max_retry_attempts}) reached, falling back to HTTP polling")
+            self.notification_redis = None
+            return False
+
         if self.notification_redis is None:
             try:
                 import redis
                 from redis.connection import ConnectionPool
-                
+
+                # Get Redis host/port from config
+                redis_host = redis_config.get('host', 'localhost')
+                redis_port = redis_config.get('port', 6379)
+                connection_timeout = redis_config.get('connection_timeout', 5)
+
                 # Create connection pool for efficiency
                 pool = ConnectionPool(
-                    host='localhost',
-                    port=6379,
+                    host=redis_host,
+                    port=redis_port,
                     db=0,
                     decode_responses=True,
-                    socket_connect_timeout=5,  # Increased timeout
-                    socket_timeout=5,
+                    socket_connect_timeout=connection_timeout,
+                    socket_timeout=connection_timeout,
                     socket_keepalive=True,
                     socket_keepalive_options={},
                     health_check_interval=30,  # Health check every 30s
                     max_connections=2,  # Limit connections per worker
                     retry_on_timeout=True
                 )
-                
+
                 self.notification_redis = redis.Redis(connection_pool=pool)
-                
+
                 # Test connection
                 self.notification_redis.ping()
-                logger.info(f"[REDIS_CONN] Worker {self.worker_id}: Redis connection established")
+                logger.info(f"[REDIS_CONN] Worker {self.worker_id}: Redis connection established to {redis_host}:{redis_port}")
                 return True
-                
+
             except Exception as e:
-                logger.error(f"[REDIS_CONN] Worker {self.worker_id}: Redis connection failed: {e}")
+                logger.error(f"[REDIS_CONN] Worker {self.worker_id}: Redis connection failed (attempt {retry_attempt + 1}/{max_retry_attempts}): {e}")
                 self.notification_redis = None
                 return False
         else:
@@ -1258,9 +1287,10 @@ class HighPerformanceRenderWorker:
                 self.notification_redis.ping()
                 return True
             except Exception as e:
-                logger.warning(f"[REDIS_CONN] Worker {self.worker_id}: Redis connection lost, reconnecting: {e}")
+                logger.warning(f"[REDIS_CONN] Worker {self.worker_id}: Redis connection lost, reconnecting (attempt {retry_attempt + 1}/{max_retry_attempts}): {e}")
                 self.notification_redis = None
-                return self._get_redis_connection()  # Recursive retry
+                # Use loop-based retry with max attempts to avoid infinite recursion
+                return self._get_redis_connection(retry_attempt + 1)
     
     def start_instant_job_notifications(self):
         """INSTANT NOTIFICATIONS: Start Redis pub/sub listener with robust error handling"""
