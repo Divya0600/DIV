@@ -1,18 +1,24 @@
 {
   "server": {
-    "url": "http://10.66.158.56:8080",
-    "timeout": 15
+    "url": "http://10.0.0.59:8080",
+    "timeout": 30
+  },
+  
+  "connection": {
+    "max_registration_attempts": 3,
+    "reconnection_interval_seconds": 180,
+    "auto_reconnect": true
   },
   
   "worker": {
     "id": "auto_hostname",
     "max_concurrent_jobs": 1,
-    "heartbeat_interval": 15,
-    "metrics_interval": 20
+    "heartbeat_interval": 30,
+    "metrics_interval": 60
   },
   
   "jobs": {
-    "timeout_per_frame": 900,
+    "timeout_per_frame": 3600,
     "retry_attempts": 2
   },
   
@@ -21,7 +27,15 @@
     "use_ram_disk": true,
     "local_temp_size_gb": 64,
     "preload_common_assets": true,
-    "max_render_threads": 16
+    "max_render_threads": 16,
+    "use_gpu": true
+  },
+  
+  "gpu": {
+    "force_enable": false,
+    "name": "Quadro M4000",
+    "memory_gb": 8,
+    "cuda_version": "12.2"
   },
   
   "paths": {
@@ -35,8 +49,8 @@
   },
   
   "network": {
-    "connection_pool_size": 20,
-    "request_timeout": 15,
+    "connection_pool_size": 10,
+    "request_timeout": 30,
     "asset_download_threads": 4
   },
   

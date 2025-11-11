@@ -1,0 +1,41 @@
+2025-10-31 17:21:32,078 - RenderFarmWorkerService - INFO - Loading config from: C:\ProgramData\Microsoft\RFS\worker_config.json
+2025-10-31 17:21:32,078 - RenderFarmWorkerService - INFO - + Config loaded successfully
+2025-10-31 17:21:32,078 - RenderFarmWorkerService - INFO - + Server URL: http://10.0.0.59:8080
+2025-10-31 17:21:32,078 - RenderFarmWorkerService - INFO - + Worker ID: auto_hostname
+2025-10-31 17:21:32,078 - RenderFarmWorkerService - INFO - Starting Render Farm Worker Service...
+2025-10-31 17:21:32,144 - RenderFarmWorkerService - INFO - All dependencies verified - ready for offline operation
+2025-10-31 17:21:32,147 - RenderFarmWorkerService - INFO - Resolved auto_hostname to: worker_ARONfx10
+2025-10-31 17:21:32,147 - RenderFarmWorkerService - INFO - Starting worker: C:\ProgramData\Microsoft\RFS\worker.py
+2025-10-31 17:21:32,147 - RenderFarmWorkerService - INFO - Server URL: http://10.0.0.59:8080
+2025-10-31 17:21:32,147 - RenderFarmWorkerService - INFO - Worker ID: worker_ARONfx10
+2025-10-31 17:21:32,147 - RenderFarmWorkerService - INFO - Foundry license environment configured
+2025-10-31 17:21:32,159 - RenderFarmWorkerService - INFO - Worker started with PID: 12648
+2025-10-31 17:21:32,685 - RenderFarmWorkerService - INFO - Worker: 2025-10-31 17:21:32,685 - INFO - Using server URL from config: http://10.0.0.59:8080
+2025-10-31 17:21:32,686 - RenderFarmWorkerService - INFO - Worker: 2025-10-31 17:21:32,685 - INFO - ============================================================
+2025-10-31 17:21:32,686 - RenderFarmWorkerService - INFO - Worker: 2025-10-31 17:21:32,685 - INFO -  HIGH-PERFORMANCE RENDER FARM WORKER NODE
+2025-10-31 17:21:32,686 - RenderFarmWorkerService - INFO - Worker: 2025-10-31 17:21:32,685 - INFO - ============================================================
+2025-10-31 17:21:32,686 - RenderFarmWorkerService - INFO - Worker: 2025-10-31 17:21:32,686 - INFO - Loaded user config from C:\ProgramData\Microsoft\RFS\worker_config.json
+2025-10-31 17:21:32,687 - RenderFarmWorkerService - INFO - Worker: 2025-10-31 17:21:32,686 - INFO - Applied worker config: {'id': 'auto_hostname', 'max_concurrent_jobs': 1, 'heartbeat_interval': 30, 'metrics_interval': 60}
+2025-10-31 17:21:32,687 - RenderFarmWorkerService - INFO - Worker: 2025-10-31 17:21:32,686 - INFO - Applied performance config: {'asset_cache_gb': 32, 'use_ram_disk': True, 'local_temp_size_gb': 64, 'preload_common_assets': True, 'max_render_threads': 16, 'use_gpu': True}
+2025-10-31 17:21:32,687 - RenderFarmWorkerService - INFO - Worker: 2025-10-31 17:21:32,686 - INFO - PRODUCTION MODE: Single job per worker enforced for maximum stability and performance
+2025-10-31 17:21:32,689 - RenderFarmWorkerService - INFO - Worker: 2025-10-31 17:21:32,688 - INFO - High-end system detected: 95.7GB RAM, using 64GB cache
+2025-10-31 17:21:32,689 - RenderFarmWorkerService - INFO - Worker: 2025-10-31 17:21:32,689 - INFO - Optimized asset cache: 64GB capacity
+2025-10-31 17:21:32,689 - RenderFarmWorkerService - INFO - Worker: 2025-10-31 17:21:32,689 - INFO - High-end buffer pool: 16 x 4096MB buffers
+2025-10-31 17:21:32,689 - RenderFarmWorkerService - INFO - Worker: 2025-10-31 17:21:32,689 - INFO - High-performance render buffer pool initialized: 16 x 4096MB buffers
+2025-10-31 17:21:33,905 - RenderFarmWorkerService - INFO - Worker: 2025-10-31 17:21:33,905 - INFO - [GPU] Detected: NVIDIA GeForce GTX 1080 (8.0GB)
+2025-10-31 17:21:33,955 - RenderFarmWorkerService - INFO - Worker: 2025-10-31 17:21:33,955 - INFO - HIGH-PERFORMANCE worker initialized: ARONfx10
+2025-10-31 17:21:33,956 - RenderFarmWorkerService - INFO - Worker: 2025-10-31 17:21:33,955 - INFO - Hostname: ARONfx10, IP: 10.0.0.180
+2025-10-31 17:21:33,956 - RenderFarmWorkerService - INFO - Worker: 2025-10-31 17:21:33,955 - INFO - Capabilities: {'platform': 'Windows', 'hostname': 'ARONfx10', 'cpu_count': 12, 'memory_gb': 95.68, 'disk_space_gb': 235.12, 'renderers': {'validation': 'runtime', 'note': 'Executables validated per-job based on job specification'}, 'network_speed': {'latency_ms': 975.35, 'status': 'ok'}, 'max_concurrent_jobs': 1, 'optimization_level': 'high_performance', 'cache_size_gb': 32, 'max_render_threads': 16, 'gpu_available': True, 'gpu_name': 'NVIDIA GeForce GTX 1080', 'gpu_memory_gb': 8.0, 'cuda_version': '512.59', 'gpu_count': 1}
+2025-10-31 17:21:33,956 - RenderFarmWorkerService - INFO - Worker: 2025-10-31 17:21:33,955 - INFO - Concurrency: 1
+2025-10-31 17:21:33,956 - RenderFarmWorkerService - INFO - Worker: 2025-10-31 17:21:33,955 - INFO - Modular renderers initialized: Nuke, Silhouette
+2025-10-31 17:21:33,956 - RenderFarmWorkerService - INFO - Worker: 2025-10-31 17:21:33,955 - INFO - Starting HIGH-PERFORMANCE worker ARONfx10
+2025-10-31 17:21:34,027 - RenderFarmWorkerService - INFO - Worker: 2025-10-31 17:21:34,027 - INFO - Successfully registered with server
+2025-10-31 17:21:34,029 - RenderFarmWorkerService - INFO - Worker: 2025-10-31 17:21:34,028 - INFO -  Worker online and ready for high-performance production
+2025-10-31 17:21:34,029 - RenderFarmWorkerService - INFO - Worker: 2025-10-31 17:21:34,029 - INFO - Background threads started with optimized intervals
+2025-10-31 17:21:38,229 - RenderFarmWorkerService - INFO - Worker: 2025-10-31 17:21:38,229 - ERROR - [REDIS_CONN] Worker ARONfx10: Redis connection failed: Error 10061 connecting to localhost:6379. No connection could be made because the target machine actively refused it.
+2025-10-31 17:21:38,230 - RenderFarmWorkerService - INFO - Worker: 2025-10-31 17:21:38,229 - WARNING - [INSTANT_NOTIFY] Worker ARONfx10: Could not connect to Redis, using polling fallback
+2025-10-31 17:21:38,230 - RenderFarmWorkerService - INFO - Worker: 2025-10-31 17:21:38,229 - INFO - Worker online and ready for HIGH-PERFORMANCE rendering with INSTANT job notifications
+2025-10-31 17:21:38,484 - RenderFarmWorkerService - INFO - Worker: 2025-10-31 17:21:38,484 - INFO - [JOB_ASSIGNED] Worker ARONfx10: Got job 250b350e-fa18-4fc4-b70d-c5b0969feaeb
+2025-10-31 17:21:38,484 - RenderFarmWorkerService - INFO - Worker: 2025-10-31 17:21:38,484 - INFO - [JOB_START] Worker ARONfx10: Starting job 250b350e
+2025-10-31 17:21:38,485 - RenderFarmWorkerService - INFO - Worker: 2025-10-31 17:21:38,485 - INFO - Starting job execution: {'sub_job_id': '250b350e-fa18-4fc4-b70d-c5b0969feaeb', 'parent_job_id': '192a8192-8051-49d1-abf8-3921e77b6226', 'frame_range': '1015760-1015764', 'job_data': {'renderer': 'silhouette', 'executable_path': 'C:\\Program Files\\SilhouetteFX\\Silhouette v5.2\\sfxcmd.exe', 'file_path': '\\\\10.0.0.10\\temp\\chiranjeevi.m\\ren\\wf\\DZK_134_0040_FG01_V01_roto_v006.sfx\\DZK_134_0040_FG01_V01_roto_v006.sfx.sfx', 'title': 'DZK_134_0040_FG01_V01_roto_v006', 'job_title': 'DZK_134_0040_FG01_V01_roto_v006', 'frame_range': '1001170-10011236', 'batch_size': 5, 'priority': 'high', 'enable_path_translation': True, 'network_share': '\\\\10.0.0.10\\temp\\IT\\Projects', 'output_path_translate': True, 'temp_directory': '\\\\10.0.0.10\\temp\\IT', 'optimization': 'standard'}}
+2025-10-31 17:21:38,485 - RenderFarmWorkerService - INFO - Worker: 2025-10-31 17:21:38,485 - INFO - + Validated executable: C:\Program Files\SilhouetteFX\Silhouette v5.2\sfxcmd.exe

@@ -14,35 +14,76 @@ from typing import Dict, List, Optional, Any
 class RedisJobManager:
     def __init__(self, redis_host='localhost', redis_port=6379, redis_db=0):
         """Initialize Redis connection"""
-        self.redis_client = redis.Redis(
-            host=redis_host, 
-            port=redis_port, 
-            db=redis_db,
-            decode_responses=True,
-            socket_connect_timeout=5,
-            socket_timeout=5,
-            retry_on_timeout=True
-        )
+        self.redis_host = redis_host
+        self.redis_port = redis_port
+        self.redis_db = redis_db
         
-        # Test connection
-        try:
-            self.redis_client.ping()
-            print("[OK] Redis connection established")
-        except redis.ConnectionError:
-            print("[ERROR] Redis connection failed - ensure Redis is running")
-            raise
-        
-        # Redis keys
+        # Define Redis keys first (before connection attempt)
         self.PENDING_JOBS = 'render:jobs:pending'
         self.JOBS_DATA = 'render:jobs:data'
         self.WORKERS = 'render:workers'
         self.WORKER_HEARTBEAT = 'render:workers:heartbeat'
         self.JOB_UPDATES = 'render:updates'
         
+        # Initialize Redis connection with retry logic
+        self._connect_with_retry()
+        
         print("[OK] Redis Job Manager initialized")
+        
+    def _connect_with_retry(self, max_retries=3):
+        """Connect to Redis with connection pooling for better performance"""
+        for attempt in range(max_retries):
+            try:
+                # Create connection pool for multiple concurrent connections
+                self.connection_pool = redis.ConnectionPool(
+                    host=self.redis_host,
+                    port=self.redis_port,
+                    db=self.redis_db,
+                    max_connections=200,  # Pool of 200 connections for 20+ workers
+                    socket_connect_timeout=10,
+                    socket_timeout=10,
+                    retry_on_timeout=True,
+                    decode_responses=True,
+                    health_check_interval=30  # Check connection health every 30s
+                )
+                
+                # Create Redis client using the connection pool
+                self.redis_client = redis.Redis(connection_pool=self.connection_pool)
+                
+                # Test connection
+                self.redis_client.ping()
+                print(f"[OK] Redis connection established (attempt {attempt + 1})")
+                return
+                
+            except redis.ConnectionError as e:
+                print(f"[WARNING] Redis connection attempt {attempt + 1} failed: {e}")
+                if attempt < max_retries - 1:
+                    print(f"[INFO] Retrying in 2 seconds...")
+                    time.sleep(2)
+                else:
+                    print("[ERROR] Redis connection failed after all retries - ensure Redis is running")
+                    raise
+        
+    def ensure_connection(self):
+        """Ensure Redis connection is active, reconnect if needed"""
+        try:
+            self.redis_client.ping()
+            return True
+        except (redis.ConnectionError, redis.TimeoutError):
+            print("[WARNING] Redis connection lost, attempting to reconnect...")
+            try:
+                self._connect_with_retry(max_retries=2)
+                return True
+            except Exception as e:
+                print(f"[ERROR] Failed to reconnect to Redis: {e}")
+                return False
     
     def submit_job(self, job_data: Dict[str, Any]) -> str:
         """Submit job - atomic operation"""
+        # Ensure Redis connection is active
+        if not self.ensure_connection():
+            raise redis.ConnectionError("Cannot connect to Redis")
+            
         job_id = str(uuid.uuid4())
         
         # Create job record
@@ -111,10 +152,16 @@ class RedisJobManager:
         else:
             print(f"[OK] Job {job_id[:8]} submitted with {len(batches)} batches")
         
+        # Enforce job limit AFTER successful job creation for better performance
+        self._enforce_job_limit(10)
+        
         return job_id
     
     def get_next_job(self, worker_id: str) -> Optional[Dict[str, Any]]:
         """Get next job - atomic with timeout"""
+        # Clean worker's stale jobs before checking capacity
+        self._cleanup_worker_stale_jobs(worker_id)
+        
         # Check worker is accepting jobs
         if not self._is_worker_accepting_jobs(worker_id):
             return None
@@ -219,6 +266,8 @@ class RedisJobManager:
         if worker_id:
             pipe.srem(f"render:worker:{worker_id}:jobs", sub_job_id)
             print(f"[CONCURRENCY] Worker {worker_id} completed batch {sub_job_id[:8]} - freed for next batch")
+        else:
+            print(f"[WARNING] No worker_id found for completed sub-job {sub_job_id[:8]} - cannot free worker")
         
         # Execute all updates atomically
         pipe.execute()
@@ -240,13 +289,61 @@ class RedisJobManager:
         
         print(f"+ Sub-job {sub_job_id[:8]} {'completed' if success else 'failed'}")
     
+    def _find_duplicate_worker(self, hostname: str, ip_address: str, current_worker_id: str) -> str:
+        """Find existing worker with same hostname+IP combination"""
+        try:
+            # Get all workers
+            all_workers = self.redis_client.hgetall(self.WORKERS)
+            
+            for worker_id, worker_data_str in all_workers.items():
+                if isinstance(worker_id, bytes):
+                    worker_id = worker_id.decode('utf-8')
+                
+                # Skip current worker
+                if worker_id == current_worker_id:
+                    continue
+                
+                try:
+                    worker_data = json.loads(worker_data_str)
+                    existing_hostname = worker_data.get('hostname', '')
+                    existing_ip = worker_data.get('ip_address', '')
+                    
+                    # Check if hostname and IP match
+                    if existing_hostname == hostname and existing_ip == ip_address:
+                        return worker_id
+                        
+                except (json.JSONDecodeError, KeyError):
+                    continue
+                    
+            return None
+            
+        except Exception as e:
+            print(f"Error checking for duplicate workers: {e}")
+            return None
+    
     def register_worker(self, worker_id: str, ip_address: str, 
                        hostname: str = None, capabilities: Dict = None):
-        """Register worker with heartbeat"""
+        """Register worker with duplicate detection based on hostname+IP"""
+        hostname = hostname or worker_id
+        
+        # Clear any stale job assignments on registration
+        self.redis_client.delete(f"render:worker:{worker_id}:jobs")
+        
+        # Check for existing worker with same hostname+IP
+        existing_worker = self._find_duplicate_worker(hostname, ip_address, worker_id)
+        if existing_worker and existing_worker != worker_id:
+            print(f"! Worker with hostname '{hostname}' and IP '{ip_address}' already exists as '{existing_worker}'")
+            print(f"! Removing old worker '{existing_worker}' and registering as '{worker_id}'")
+            # Remove the old worker entry completely
+            self.redis_client.hdel(self.WORKERS, existing_worker)
+            self.redis_client.delete(f"{self.WORKER_HEARTBEAT}:{existing_worker}")
+            self.redis_client.delete(f"render:worker:{existing_worker}:jobs")
+            print(f"! Cleaned up old worker '{existing_worker}'")
+        
         worker_data = {
             'id': worker_id,
             'ip_address': ip_address,
-            'hostname': hostname or worker_id,
+            'hostname': hostname,
             'status': 'online',
             'accepting_jobs': True,
             'capabilities': json.dumps(capabilities or {}),
@@ -261,9 +358,13 @@ class RedisJobManager:
         
         self._publish_update('worker_registered', {'worker_id': worker_id})
         print(f"+ Worker {worker_id} registered")
+        return worker_id
     
     def update_worker_heartbeat(self, worker_id: str) -> bool:
         """Update worker heartbeat - high frequency operation"""
+        # Clean stale jobs during heartbeat
+        self._cleanup_worker_stale_jobs(worker_id)
+        
         # Fast heartbeat update with TTL
         result = self.redis_client.setex(f"{self.WORKER_HEARTBEAT}:{worker_id}", 120, 'online')
         return bool(result)
@@ -295,6 +396,52 @@ class RedisJobManager:
         self.redis_client.hset(self.WORKERS, worker_id, json.dumps(worker))
         self._publish_update('worker_resumed', {'worker_id': worker_id})
         return True
+    
+    def delete_worker(self, worker_id: str) -> bool:
+        """Delete worker from system - only if offline"""
+        try:
+            # Check if worker exists
+            worker_data = self.redis_client.hget(self.WORKERS, worker_id)
+            if not worker_data:
+                return False
+            
+            worker_info = json.loads(worker_data)
+            
+            # Safety check - allow deletion of offline workers or stopped workers
+            is_online = self.redis_client.get(f"{self.WORKER_HEARTBEAT}:{worker_id}")
+            worker_status = worker_info.get('status', 'unknown')
+            
+            # Allow deletion if worker is offline OR explicitly stopped
+            if is_online and worker_status not in ['stopped', 'offline']:
+                print(f"Cannot delete active worker {worker_id} (status: {worker_status})")
+                return False
+                
+            if is_online and worker_status == 'stopped':
+                print(f"Deleting stopped worker {worker_id} (removing heartbeat)")
+                # Remove heartbeat for stopped workers to clean them up properly
+                self.redis_client.delete(f"{self.WORKER_HEARTBEAT}:{worker_id}")
+            
+            # Clean up worker data
+            pipe = self.redis_client.pipeline()
+            
+            # Remove from workers hash
+            pipe.hdel(self.WORKERS, worker_id)
+            
+            # Remove heartbeat
+            pipe.delete(f"{self.WORKER_HEARTBEAT}:{worker_id}")
+            
+            # Clean up any running jobs for this worker
+            self._cleanup_offline_worker_jobs(worker_id)
+            
+            # Execute pipeline
+            pipe.execute()
+            
+            print(f"Deleted worker {worker_id} from system")
+            return True
+            
+        except Exception as e:
+            print(f"Error deleting worker {worker_id}: {e}")
+            return False
     
     def get_all_jobs(self) -> List[Dict[str, Any]]:
         """Get all jobs with current progress"""
@@ -592,13 +739,17 @@ class RedisJobManager:
             if self.redis_client.get(k)
         ])
         
+        # Get connection pool stats
+        connection_stats = self._get_connection_pool_stats()
+        
         return {
             'total_jobs': total_jobs,
             'pending_batches': pending_jobs_count,
             'online_workers': online_workers,
             'total_workers': total_workers,
             'active_jobs': 0,  # Will be calculated
-            'redis_memory': self._get_redis_memory_usage()
+            'redis_memory': self._get_redis_memory_usage(),
+            'connection_pool': connection_stats
         }
     
     def cleanup_old_data(self, days_old: int = 7):
@@ -808,6 +959,33 @@ class RedisJobManager:
         except:
             return "Unknown"
     
+    def _get_connection_pool_stats(self) -> Dict[str, Any]:
+        """Get Redis connection pool statistics"""
+        try:
+            if hasattr(self, 'connection_pool'):
+                pool = self.connection_pool
+                return {
+                    'max_connections': pool.max_connections,
+                    'created_connections': pool.created_connections,
+                    'available_connections': len(pool._available_connections),
+                    'in_use_connections': pool.created_connections - len(pool._available_connections)
+                }
+            else:
+                return {
+                    'max_connections': 1,
+                    'created_connections': 1,
+                    'available_connections': 1,
+                    'in_use_connections': 0
+                }
+        except Exception as e:
+            return {
+                'max_connections': 20,
+                'created_connections': 'Unknown',
+                'available_connections': 'Unknown', 
+                'in_use_connections': 'Unknown',
+                'error': str(e)
+            }
+    
     def get_batch_logs(self, batch_id: str) -> str:
         """Get logs for a specific batch"""
         try:
@@ -922,6 +1100,28 @@ class RedisJobManager:
             print(f"Error retrying batch {batch_id}: {e}")
             return False
     
+    def _cleanup_worker_stale_jobs(self, worker_id: str):
+        """Clean stale job assignments from worker's job list"""
+        try:
+            active_jobs = self.redis_client.smembers(f"render:worker:{worker_id}:jobs")
+            if not active_jobs:
+                return
+            
+            removed_count = 0
+            for job_id in active_jobs:
+                # Check if job actually exists and is running
+                job_data = self.redis_client.hget(f"render:subjobs:{job_id}", "data")
+                if not job_data:
+                    # Job doesn't exist, remove from worker
+                    self.redis_client.srem(f"render:worker:{worker_id}:jobs", job_id)
+                    removed_count += 1
+            
+            if removed_count > 0:
+                print(f"[CLEANUP] Removed {removed_count} stale job assignments from worker {worker_id}")
+                
+        except Exception as e:
+            print(f"[ERROR] Failed to cleanup stale jobs for worker {worker_id}: {e}")
+
     def _cleanup_offline_worker_jobs(self, worker_id: str):
         """Reset running batches from offline workers back to pending queue"""
         try:
@@ -986,6 +1186,40 @@ class RedisJobManager:
         except Exception as e:
             print(f"Error cleaning up offline worker {worker_id} jobs: {e}")
     
+    def _enforce_job_limit(self, max_jobs: int = 10):
+        """Enforce maximum job limit by deleting oldest jobs when exceeded"""
+        try:
+            # Get current job count
+            current_job_count = self.redis_client.hlen(self.JOBS_DATA)
+            
+            if current_job_count >= max_jobs:
+                # Get all jobs sorted by creation time (oldest first)
+                job_data = self.redis_client.hgetall(self.JOBS_DATA)
+                jobs_with_dates = []
+                
+                for job_id, job_json in job_data.items():
+                    job = json.loads(job_json)
+                    created_at = job.get('created_at', '')
+                    jobs_with_dates.append((created_at, job_id, job))
+                
+                # Sort by creation time (oldest first)
+                jobs_with_dates.sort(key=lambda x: x[0])
+                
+                # Calculate how many jobs to delete
+                jobs_to_delete = current_job_count - max_jobs + 1
+                
+                # Delete oldest jobs
+                for i in range(jobs_to_delete):
+                    if i < len(jobs_with_dates):
+                        _, job_id_to_delete, job_info = jobs_with_dates[i]
+                        job_title = job_info.get('title', 'Untitled')
+                        
+                        print(f"[LIMIT] Deleting oldest job {job_id_to_delete[:8]} ('{job_title}') - job limit of {max_jobs} reached")
+                        self.delete_job(job_id_to_delete)
+                        
+        except Exception as e:
+            print(f"[ERROR] Failed to enforce job limit: {e}")
+    
     def cleanup_all_stuck_batches(self):
         """Manual cleanup of all running batches from offline workers"""
         try:
@@ -1009,6 +1243,15 @@ class RedisJobManager:
         except Exception as e:
             print(f"Error in manual cleanup: {e}")
             return 0
+    
+    def close_connection_pool(self):
+        """Properly close Redis connection pool"""
+        try:
+            if hasattr(self, 'connection_pool'):
+                self.connection_pool.disconnect()
+                print("[OK] Redis connection pool closed")
+        except Exception as e:
+            print(f"[WARNING] Error closing connection pool: {e}")
 
 # Global instance
 redis_manager = RedisJobManager()

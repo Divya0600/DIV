@@ -21,6 +21,10 @@ from pathlib import Path
 from multiprocessing import shared_memory
 from collections import OrderedDict
 
+# Import renderer modules
+from renderers.nuke_renderer import NukeRenderer
+from renderers.silhouette_renderer import SilhouetteRenderer
+
 # Configure logging - set to WARNING to reduce log noise, or INFO for normal operation
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -193,7 +197,7 @@ class HighPerformanceRenderWorker:
         self.heartbeat_thread = None
         self.metrics_thread = None
         self.server_url = server_url.rstrip('/')
-        self.worker_id = worker_id or f"worker_{socket.gethostname()}"
+        self.worker_id = worker_id or socket.gethostname()
         self.hostname = socket.gethostname()
         self.ip_address = self.get_local_ip()
         self.running = False
@@ -208,7 +212,7 @@ class HighPerformanceRenderWorker:
         from urllib3.util.retry import Retry
         
         retry_strategy = Retry(total=2, backoff_factor=0.1)
-        adapter = HTTPAdapter(pool_connections=20, pool_maxsize=20, max_retries=retry_strategy)
+        adapter = HTTPAdapter(pool_connections=5, pool_maxsize=5, max_retries=retry_strategy)
         self.session.mount("http://", adapter)
         self.session.mount("https://", adapter)
         
@@ -283,10 +287,30 @@ class HighPerformanceRenderWorker:
         if self.config.get('performance', {}).get('preload_common_assets', False):
             self.preload_assets()
         
+        # Initialize modular renderers
+        self.nuke_renderer = NukeRenderer(
+            config=self.config,
+            asset_cache=self.asset_cache,
+            monitor_process_func=self._monitor_process_with_activity,
+            detect_output_files_func=self.detect_output_files,
+            validate_frame_range_func=self.validate_nuke_frame_range,
+            get_peak_memory_func=self.get_peak_memory_usage,
+            render_stats=self.render_stats
+        )
+        
+        self.silhouette_renderer = SilhouetteRenderer(
+            config=self.config,
+            asset_cache=self.asset_cache,
+            monitor_process_func=self._monitor_process_with_activity,
+            get_peak_memory_func=self.get_peak_memory_usage,
+            render_stats=self.render_stats
+        )
+        
         logger.info(f"HIGH-PERFORMANCE worker initialized: {self.worker_id}")
         logger.info(f"Hostname: {self.hostname}, IP: {self.ip_address}")
         logger.info(f"Capabilities: {self.capabilities}")
         logger.info(f"Concurrency: {self.config.get('worker', {}).get('max_concurrent_jobs', 8)}")
+        logger.info("Modular renderers initialized: Nuke, Silhouette")
     
     def setup_ram_disk(self):
         """Setup RAM disk for ultra-fast temp storage"""
@@ -314,117 +338,112 @@ class HighPerformanceRenderWorker:
         ]
         self.asset_cache.preload_common_assets(asset_patterns)
     
-    def verify_silhouette_output_files(self, output_dir, start_frame, end_frame, output_format='tiff'):
-        """FIXED: Verify that Silhouette actually rendered all expected frames"""
-        output_files = []
-        
-        try:
-            if not os.path.exists(output_dir):
-                logger.warning(f"[VERIFY] Output directory does not exist: {output_dir}")
-                return output_files
-            
-            # Common Silhouette output file extensions
-            format_extensions = {
-                'tiff': ['.tif', '.tiff'],
-                'tif': ['.tif', '.tiff'],
-                'exr': ['.exr'],
-                'png': ['.png'],
-                'jpg': ['.jpg', '.jpeg'],
-                'jpeg': ['.jpg', '.jpeg'],
-                'dpx': ['.dpx']
-            }
-            
-            extensions = format_extensions.get(output_format.lower(), ['.tif', '.tiff', '.exr', '.png'])
-            
-            # Look for files in the frame range
-            for frame_num in range(start_frame, end_frame + 1):
-                frame_found = False
-                
-                # Try different naming patterns Silhouette might use
-                patterns = [
-                    f"*{frame_num:04d}*",  # Most common: filename.0001.ext
-                    f"*{frame_num:03d}*",  # 3-digit padding
-                    f"*{frame_num:05d}*",  # 5-digit padding  
-                    f"*{frame_num:06d}*",  # 6-digit padding
-                    f"*{frame_num}*",     # No padding
-                    f"*_{frame_num:04d}*", # Underscore separator
-                    f"*.{frame_num:04d}.*" # Dot separator
-                ]
-                
-                for pattern in patterns:
-                    if frame_found:
-                        break
-                        
-                    for ext in extensions:
-                        search_pattern = os.path.join(output_dir, f"{pattern}{ext}")
-                        matches = glob.glob(search_pattern)
-                        
-                        if matches:
-                            # Found a file for this frame
-                            output_files.extend(matches)
-                            frame_found = True
-                            logger.debug(f"[VERIFY] Found frame {frame_num}: {matches[0]}")
-                            break
-                
-                if not frame_found:
-                    logger.warning(f"[VERIFY] Missing frame {frame_num} in {output_dir}")
-            
-            # Also check for any files that might match the frame range
-            if not output_files:
-                logger.info(f"[VERIFY] No pattern matches, checking all files in {output_dir}")
-                all_files = []
-                for ext in extensions:
-                    all_files.extend(glob.glob(os.path.join(output_dir, f"*{ext}")))
-                
-                # Filter files that might be in our frame range
-                for file_path in all_files:
-                    filename = os.path.basename(file_path)
-                    # Extract numbers from filename
-                    import re
-                    numbers = re.findall(r'\d+', filename)
-                    for num_str in numbers:
-                        try:
-                            num = int(num_str)
-                            if start_frame <= num <= end_frame:
-                                output_files.append(file_path)
-                                logger.debug(f"[VERIFY] Found potential frame file: {file_path}")
-                                break
-                        except:
-                            continue
-            
-            # Remove duplicates
-            output_files = list(set(output_files))
-            
-            if output_files:
-                logger.info(f"[VERIFY] Found {len(output_files)} output files for frames {start_frame}-{end_frame}")
-                # Log a few examples
-                for i, file_path in enumerate(sorted(output_files)[:3]):
-                    file_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
-                    logger.info(f"[VERIFY]   {i+1}. {os.path.basename(file_path)} ({file_size/1024/1024:.1f}MB)")
-                if len(output_files) > 3:
-                    logger.info(f"[VERIFY]   ... and {len(output_files)-3} more files")
-            else:
-                logger.warning(f"[VERIFY] No output files found in {output_dir} for frames {start_frame}-{end_frame}")
-                # List what files ARE in the directory
-                try:
-                    all_files = os.listdir(output_dir)
-                    if all_files:
-                        logger.info(f"[VERIFY] Files in output directory: {all_files[:10]}")
-                    else:
-                        logger.info(f"[VERIFY] Output directory is empty")
-                except Exception as e:
-                    logger.warning(f"[VERIFY] Could not list output directory: {e}")
-            
-            return output_files
-            
-        except Exception as e:
-            logger.error(f"[VERIFY] Error verifying output files: {e}")
-            return output_files
+    # Silhouette helper methods moved to SilhouetteRenderer class
     
     def get_peak_memory_usage(self, job_id):
         """Get stored peak memory usage for job"""
         cache = getattr(self, '_peak_memory_cache', {})
         return cache.get(job_id, 0)
+    
+    def _monitor_process_with_activity(self, process, max_timeout):
+        """Smart process monitoring - kill only if truly stuck (no activity)"""
+        import psutil
+        import threading
+        
+        try:
+            # Get psutil process for monitoring
+            ps_process = psutil.Process(process.pid)
+            
+            # Track activity
+            idle_start_time = None
+            max_idle_time = 180     # Was 600 (3 min instead of 10 min)
+            check_interval = 10     # Was 30 (check every 10s instead of 30s)
+            total_time = 0
+            
+            logger.info(f"[SMART_MONITOR] Monitoring process {process.pid} for activity")
+            
+            # Start thread to capture output
+            output_queue = []
+            
+            def capture_output():
+                try:
+                    stdout, stderr = process.communicate()
+                    output_queue.extend([stdout, stderr])
+                except Exception as e:
+                    output_queue.extend([b"", str(e).encode()])
+            
+            output_thread = threading.Thread(target=capture_output)
+            output_thread.daemon = True
+            output_thread.start()
+            
+            # Monitor process activity
+            last_cpu_times = ps_process.cpu_times()
+            
+            while process.poll() is None and total_time < max_timeout:
+                time.sleep(check_interval)
+                total_time += check_interval
+                
+                try:
+                    # Check CPU activity
+                    current_cpu_times = ps_process.cpu_times()
+                    cpu_delta = (current_cpu_times.user - last_cpu_times.user + 
+                               current_cpu_times.system - last_cpu_times.system)
+                    
+                    # Check memory activity (memory usage changes indicate work)
+                    memory_info = ps_process.memory_info()
+                    
+                    # Process is active if CPU time increased or high memory usage
+                    is_active = (cpu_delta > 0.1 or memory_info.rss > 500 * 1024 * 1024)  # 500MB+
+                    
+                    if is_active:
+                        # Process is working - reset idle timer
+                        if idle_start_time:
+                            logger.info(f"[SMART_MONITOR] Process {process.pid} resumed activity")
+                            idle_start_time = None
+                    else:
+                        # Process appears idle
+                        if idle_start_time is None:
+                            idle_start_time = time.time()
+                            logger.info(f"[SMART_MONITOR] Process {process.pid} appears idle, monitoring...")
+                        else:
+                            idle_duration = time.time() - idle_start_time
+                            if idle_duration > max_idle_time:
+                                logger.error(f"[SMART_MONITOR] Process {process.pid} stuck ({idle_duration:.0f}s idle) - killing")
+                                process.kill()
+                                break
+                    
+                    last_cpu_times = current_cpu_times
+                    
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    # Process ended or can't access - break monitoring
+                    break
+            
+            # Wait for output thread to complete (with timeout)
+            output_thread.join(timeout=30)
+            
+            # Handle timeout case
+            if process.poll() is None and total_time >= max_timeout:
+                logger.error(f"[SMART_MONITOR] Process {process.pid} reached max timeout ({max_timeout}s) - killing")
+                process.kill()
+                process.wait(timeout=10)
+                raise subprocess.TimeoutExpired(None, max_timeout, b"", b"Max timeout reached")
+            
+            # Return captured output
+            if len(output_queue) >= 2:
+                return output_queue[0], output_queue[1]
+            else:
+                stdout, stderr = process.communicate(timeout=10)
+                return stdout, stderr
+                
+        except Exception as e:
+            logger.error(f"[SMART_MONITOR] Error monitoring process: {e}")
+            # Fallback to simple communicate
+            try:
+                return process.communicate(timeout=60)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                stdout, stderr = process.communicate()
+                raise subprocess.TimeoutExpired(None, 60, stdout, stderr)
     
     def detect_output_files(self, script_path, frame_range, job_data):
         """
@@ -633,500 +652,9 @@ class HighPerformanceRenderWorker:
             logger.warning(f"[WARN] Nuke frame validation failed: {e}, proceeding with requested range")
             return requested_start, requested_end, f"Nuke frame validation error: {e}"
 
-    def validate_silhouette_frame_range(self, project_file, requested_start, requested_end):
-        """Validate frame range against actual Silhouette project content"""
-        try:
-            # Read project file to find actual frame range
-            with open(project_file, 'r', encoding='utf-8', errors='ignore') as f:
-                content = f.read()
-            
-            # Look for frame range indicators in Silhouette project file
-            # Silhouette projects contain frame range information
-            import re
-            
-            # Common patterns in Silhouette project files
-            frame_patterns = [
-                r'startFrame\s*=\s*(\d+)',
-                r'endFrame\s*=\s*(\d+)',
-                r'firstFrame\s*=\s*(\d+)',
-                r'lastFrame\s*=\s*(\d+)',
-                r'"start":\s*(\d+)',
-                r'"end":\s*(\d+)'
-            ]
-            
-            project_start = None
-            project_end = None
-            
-            for pattern in frame_patterns:
-                matches = re.findall(pattern, content)
-                if matches:
-                    if 'start' in pattern.lower() or 'first' in pattern.lower():
-                        project_start = int(matches[0])
-                    elif 'end' in pattern.lower() or 'last' in pattern.lower():
-                        project_end = int(matches[0])
-            
-            # If we found the project's actual frame range
-            if project_start is not None and project_end is not None:
-                actual_frames = project_end - project_start + 1
-                requested_frames = requested_end - requested_start + 1
-                
-                logger.info(f"[INFO] Project frame range: {project_start}-{project_end} ({actual_frames} frames)")
-                logger.info(f"[INFO] Requested frame range: {requested_start}-{requested_end} ({requested_frames} frames)")
-                
-                # Adjust requested range to fit within actual range
-                adjusted_start = max(requested_start, project_start)
-                adjusted_end = min(requested_end, project_end)
-                
-                if adjusted_start > adjusted_end:
-                    return None, None, f"Requested frames {requested_start}-{requested_end} are outside project range {project_start}-{project_end}"
-                
-                if adjusted_start != requested_start or adjusted_end != requested_end:
-                    logger.warning(f"[WARN] Frame range adjusted: {requested_start}-{requested_end} -> {adjusted_start}-{adjusted_end}")
-                    return adjusted_start, adjusted_end, f"Frame range adjusted to fit project: {adjusted_start}-{adjusted_end}"
-                
-                return adjusted_start, adjusted_end, "Frame range validated"
-            
-            # If we couldn't determine project range, proceed with requested range but warn
-            logger.warning(f"[WARN] Could not determine project frame range, proceeding with requested: {requested_start}-{requested_end}")
-            return requested_start, requested_end, "Could not validate frame range - proceeding with requested"
-            
-        except Exception as e:
-            logger.warning(f"[WARN] Frame validation failed: {e}, proceeding with requested range")
-            return requested_start, requested_end, f"Frame validation error: {e}"
+    # Silhouette frame validation moved to SilhouetteRenderer class
 
-    def render_nuke_optimized(self, executable, project_file, frame_range, job_data, batch_id):
-        """OPTIMIZED Nuke rendering with maximum performance"""
-        start_time = time.time()
-        
-        try:
-            # Use consistent absolute paths for both validation and execution
-            abs_executable = os.path.abspath(executable)
-            abs_project_file = safe_path_resolve(project_file)
-            
-            logger.info(f"Nuke: {frame_range} frames")
-            
-            # Validate paths exist before proceeding
-            if not os.path.exists(abs_executable):
-                logger.error(f"Executable not found: {abs_executable}")
-                return False, f"Executable not found: {abs_executable}", {'render_time': 0}
-            
-            if not os.path.exists(abs_project_file):
-                logger.error(f"Project file not found: {abs_project_file}")
-                return False, f"Project file not found: {abs_project_file}", {'render_time': 0}
-            
-            # Parse frame range
-            if '-' in frame_range:
-                start_frame, end_frame = map(int, frame_range.split('-'))
-            else:
-                start_frame = end_frame = int(frame_range)
-            
-            # Validate frame range against project content
-            validated_start, validated_end, validation_msg = self.validate_nuke_frame_range(
-                abs_project_file, start_frame, end_frame
-            )
-            
-            if validated_start is None:
-                error_msg = f"Nuke frame validation failed: {validation_msg}"
-                logger.error(f"[ERROR] {error_msg}")
-                return False, error_msg, {'render_time': 0}
-            
-            # Use validated frame range
-            if validated_start != start_frame or validated_end != end_frame:
-                logger.info(f"[OK] Using validated Nuke range: {validated_start}-{validated_end}")
-                start_frame, end_frame = validated_start, validated_end
-            
-            # Build OPTIMIZED command with maximum performance - let Nuke use default cache
-            max_threads = self.config.get('performance', {}).get('max_render_threads', 16)
-            cmd = [
-                abs_executable,
-                '-i', '-f', '-x',
-                '-m', str(max_threads),  # Use all available threads
-                '-F', f"{start_frame}-{end_frame}",
-                '-V', '2',               # Reduced verbosity for speed
-                '--', abs_project_file
-            ]
-            
-            # Add extra arguments
-            extra_args = job_data.get('extra_args', '')
-            if extra_args:
-                cmd_with_args = cmd[:-2] + extra_args.split() + cmd[-2:]
-                cmd = cmd_with_args
-            
-            # Set working directory - use project directory so Nuke can access the script
-            work_dir = os.path.dirname(abs_project_file)
-            safe_work_dir = work_dir
-            
-            # Create batch file for Windows with UNC path handling
-            batch_file = None
-            if platform.system() == 'Windows':
-                import tempfile
-                batch_file = Path(tempfile.gettempdir()) / f"nuke_opt_{batch_id}.cmd"
-                
-                # Create batch content with optimized settings
-                batch_content = []
-                batch_content.append("@echo off")
-                batch_content.append(f'cd /d "{safe_work_dir}"')
-                batch_content.append("echo Current directory: %CD%")
-                batch_content.append("echo Starting OPTIMIZED Nuke render...")
-                
-                # Use the optimized command array - let Nuke use default cache settings
-                nuke_cmd = f'"{cmd[0]}" -i -f -x -m {max_threads} -F {start_frame}-{end_frame} -V 2 -- "{cmd[-1]}"'
-                batch_content.append(nuke_cmd)
-                batch_content.append("echo Nuke render completed with exit code: %ERRORLEVEL%")
-                
-                with open(batch_file, 'w', encoding='utf-8') as f:
-                    f.write('\n'.join(batch_content))
-                
-                logger.info(f"Optimized batch file contents:")
-                for line in batch_content:
-                    logger.info(f"  {line}")
-                
-                cmd = ["cmd", "/c", str(batch_file.absolute())]
-                shell = False
-            else:
-                shell = False
-            
-            # Calculate aggressive timeout for speed
-            frame_count = int(end_frame) - int(start_frame) + 1 if '-' in frame_range else 1
-            timeout = frame_count * self.config.get('jobs', {}).get('timeout_per_frame', 900)  # Reduced timeout
-            logger.info(f"Aggressive timeout: {timeout}s for {frame_count} frames")
-            
-            # Execute with high priority - let Nuke use default cache settings
-            env = os.environ.copy()
-            # Let Nuke use its own default temp and cache settings
-            
-            # Monitor execution with high performance settings
-            with subprocess.Popen(
-                cmd, 
-                shell=shell,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding='utf-8',
-                errors='replace',
-                cwd=safe_work_dir,
-                env=env,
-                creationflags=subprocess.HIGH_PRIORITY_CLASS if platform.system() == "Windows" else 0
-            ) as process:
-                
-                logger.info(f"High-priority process started with PID: {process.pid}")
-                
-                # Monitor process with resource tracking
-                try:
-                    stdout, stderr = process.communicate(timeout=timeout)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    stdout, stderr = process.communicate()
-                    raise subprocess.TimeoutExpired(cmd, timeout, stdout, stderr)
-            
-            render_time = time.time() - start_time
-            
-            logger.info(f"Process completed with return code: {process.returncode}")
-            logger.info(f"Render time: {render_time:.1f}s")
-            logger.info(f"STDOUT: {stdout[:500]}...")
-            logger.info(f"STDERR: {stderr[:500]}...")
-            
-            # Clean up batch file
-            if platform.system() == 'Windows' and batch_file and batch_file.exists():
-                batch_file.unlink()
-                logger.info("Batch file cleaned up")
-            
-            # Analyze results
-            if process.returncode == 0:
-                output_info = self.detect_output_files(abs_project_file, frame_range, job_data)
-                
-                metrics = {
-                    'render_time': render_time,
-                    'output_info': output_info,
-                    'memory_peak': self.get_peak_memory_usage(batch_id),
-                    'frames_rendered': frame_count,
-                    'fps': frame_count / render_time if render_time > 0 else 0,
-                    'cache_stats': self.asset_cache.get_stats(),
-                    'optimization': 'high_performance'
-                }
-                
-                if hasattr(self, 'output_locations'):
-                    self.output_locations[batch_id] = output_info
-                
-                if hasattr(self, 'render_stats'):
-                    self.render_stats['jobs_completed'] += 1
-                    self.render_stats['frames_rendered'] += frame_count
-                    self.render_stats['total_render_time'] += render_time
-                
-                logger.info(f" OPTIMIZED Nuke render successful! {output_info.get('total_files', 0)} files rendered in {render_time:.1f}s")
-                return True, None, metrics
-            else:
-                error_msg = f"Nuke render failed (exit {process.returncode}): {stderr}"
-                logger.error(f" Render failed: {error_msg}")
-                return False, error_msg, {'render_time': render_time}
-                
-        except subprocess.TimeoutExpired:
-            error_msg = f"Render timed out after {timeout}s"
-            logger.error(f"{error_msg}")
-            return False, error_msg, {'render_time': time.time() - start_time}
-        except Exception as e:
-            error_msg = f"Render execution error: {str(e)}"
-            logger.error(f" {error_msg}")
-            logger.exception("Full traceback:")
-            
-            if hasattr(self, 'render_buffer_pool'):
-                self.render_buffer_pool.return_buffer(batch_id)
-            
-            return False, error_msg, {'render_time': time.time() - start_time}
-    
-    def render_silhouette_optimized(self, executable, project_file, frame_range, job_data, batch_id):
-        """OPTIMIZED Silhouette rendering with maximum performance"""
-        start_time = time.time()
-        
-        try:
-            # Parse frame range
-            if '-' in frame_range:
-                start_frame, end_frame = map(int, frame_range.split('-'))
-                frame_count = end_frame - start_frame + 1
-            else:
-                start_frame = end_frame = int(frame_range)
-                frame_count = 1
-            
-            logger.info(f"Silhouette: {frame_range} frames")
-            
-            # Validate frame range against project content
-            validated_start, validated_end, validation_msg = self.validate_silhouette_frame_range(
-                project_file, start_frame, end_frame
-            )
-            
-            if validated_start is None:
-                error_msg = f"Frame validation failed: {validation_msg}"
-                logger.error(f"[ERROR] {error_msg}")
-                return False, error_msg, {'render_time': 0}
-            
-            # Use validated frame range
-            if validated_start != start_frame or validated_end != end_frame:
-                # Using validated range
-                start_frame, end_frame = validated_start, validated_end
-                frame_count = end_frame - start_frame + 1
-            
-            # Validate paths
-            abs_executable = os.path.abspath(executable)
-            abs_project_file = safe_path_resolve(project_file)
-            
-            if not os.path.exists(abs_project_file):
-                error_msg = f"Project file not found: {abs_project_file}"
-                logger.error(f" {error_msg}")
-                return False, error_msg, {'render_time': 0}
-            
-            if not os.path.exists(abs_executable):
-                error_msg = f"Silhouette executable not found: {abs_executable}"
-                logger.error(f"[ERROR] {error_msg}")
-                return False, error_msg, {'render_time': 0}
-            
-            # Get sequence name from job data, or try to auto-detect
-            sequence_name = job_data.get('sequence_name', None)
-            
-            # If no sequence specified, try common sequence names or use default
-            if not sequence_name:
-                # Try to read project file to find sequence names
-                try:
-                    with open(abs_project_file, 'r', encoding='utf-8', errors='ignore') as f:
-                        content = f.read()
-                    
-                    # Look for sequence definitions in Silhouette project
-                    import re
-                    seq_matches = re.findall(r'"name"\s*:\s*"([^"]+)"', content)
-                    if seq_matches:
-                        sequence_name = seq_matches[0]  # Use first sequence found
-                        # Auto-detected sequence
-                        pass
-                    else:
-                        # Common default sequence names in Silhouette
-                        sequence_name = "Composite"  # Most common default
-                        # Using default sequence
-                except Exception as e:
-                    sequence_name = "Composite"  # Fallback
-                    logger.warning(f"[WARN] Could not read project for sequence detection: {e}")
-            
-            # Determine and create output directory
-            output_dir = job_data.get('output_directory')
-            if not output_dir:
-                # Default output directory
-                project_dir = os.path.dirname(abs_project_file)
-                output_dir = os.path.join(project_dir, 'render_output')
-                
-            # Ensure output directory exists
-            os.makedirs(output_dir, exist_ok=True)
-            
-            # Build OPTIMIZED Silhouette command
-            max_threads = self.config.get('performance', {}).get('max_render_threads', 16)
-            cmd = [
-                abs_executable,
-                "-project", abs_project_file,
-                "-sequence", sequence_name,
-                "-range", f"{start_frame}-{end_frame}",
-                "-output", output_dir,
-                "-format", job_data.get('output_format', 'tiff'),
-                "-threads", str(max_threads),
-                "-priority", "high",
-                "-cache", "32G"
-            ]
-            
-            # Add quality settings if provided
-            if 'quality' in job_data:
-                cmd.extend(["-quality", str(job_data['quality'])])
-            
-            # Add any additional Silhouette arguments from job data
-            extra_args = job_data.get('extra_arguments', '')
-            if extra_args:
-                cmd.extend(extra_args.split())
-            
-            # Set working directory
-            work_dir = os.path.dirname(abs_project_file)
-            
-            # Calculate aggressive timeout (60 seconds per frame for Silhouette)
-            timeout = max(frame_count * 60, 300)
-            
-            # Execute Silhouette render with high priority
-            env = os.environ.copy()
-            # Let Silhouette use its own default temp directory
-            
-            with subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding='utf-8',
-                errors='replace',
-                cwd=work_dir,
-                env=env,
-                creationflags=subprocess.HIGH_PRIORITY_CLASS if platform.system() == "Windows" else 0
-            ) as process:
-                stdout, stderr = process.communicate(timeout=timeout)
-                
-            render_time = time.time() - start_time
-            logger.info(f"Render completed in {render_time:.1f}s")
-            
-            # Enhanced output parsing 
-            actual_frames_rendered = 0
-            if stdout:
-                logger.info(f"Silhouette output: {stdout.strip()[:500]}...")  # Limit log size
-                
-                # Parse output to check if all frames were actually rendered
-                stdout_lines = stdout.split('\n')
-                for line in stdout_lines:
-                    line_lower = line.lower()
-                    # Look for various frame completion indicators
-                    if any(keyword in line_lower for keyword in ['frame', 'rendering', 'processed', 'completed']):
-                        # Try to extract frame numbers
-                        import re
-                        frame_nums = re.findall(r'\b(\d+)\b', line)
-                        if frame_nums:
-                            try:
-                                frame_num = int(frame_nums[-1])  # Usually the last number is the frame
-                                if start_frame <= frame_num <= end_frame:
-                                    actual_frames_rendered += 1
-                            except:
-                                pass
-                    
-                    # Check for batch completion messages
-                    elif any(keyword in line_lower for keyword in ['complete', 'finished', 'done']) and 'range' in line_lower:
-                        # If we see a completion message, trust it
-                        actual_frames_rendered = frame_count
-                        break
-                
-                # Fallback: count based on successful exit and reasonable render time
-                if actual_frames_rendered == 0 and process.returncode == 0:
-                    if render_time > frame_count * 0.5:  # At least 0.5s per frame is reasonable
-                        actual_frames_rendered = frame_count
-                        logger.info(f"[INFO] No frame indicators in output, but render time suggests success: {actual_frames_rendered} frames")
-                    else:
-                        logger.warning(f"[WARN] Suspiciously fast render time: {render_time:.2f}s for {frame_count} frames")
-                
-            if stderr:
-                logger.info(f"Silhouette stderr: {stderr.strip()[:500]}...")  # Limit log size
-                
-                # Check stderr for ACTUAL errors only (not just mentions of "frame")
-                error_keywords = ['error:', 'failed:', 'cannot load', 'cannot open', 'cannot write', 'not found', 'access denied']
-                if any(keyword in stderr.lower() for keyword in error_keywords):
-                    logger.error(f"[ERROR] Silhouette errors detected in stderr")
-                    # Don't immediately fail - still check output files
-            
-            # Verify actual output files exist - also check project directory
-            output_files_found = self.verify_silhouette_output_files(output_dir, start_frame, end_frame, job_data.get('output_format', 'tiff'))
-            logger.info(f"[VERIFY] Found {len(output_files_found)} output files in {output_dir}")
-            
-            # If no files found in default output dir, check project directory too
-            if len(output_files_found) == 0:
-                project_dir = os.path.dirname(abs_project_file)
-                if project_dir != output_dir:
-                    logger.info(f"[VERIFY] Checking project directory: {project_dir}")
-                    project_files = self.verify_silhouette_output_files(project_dir, start_frame, end_frame, job_data.get('output_format', 'tiff'))
-                    if len(project_files) > 0:
-                        output_files_found = project_files
-                        output_dir = project_dir
-                        logger.info(f"[VERIFY] Found {len(project_files)} files in project directory instead")
-            
-            # Check result with enhanced validation - prioritize actual files over exit codes
-            if len(output_files_found) > 0:
-                # Files were created - consider this successful regardless of exit code
-                actual_frames_rendered = len(output_files_found)
-                if len(output_files_found) == frame_count:
-                    logger.info(f"[SUCCESS] All {frame_count} frames rendered successfully!")
-                    success_status = True
-                else:
-                    logger.warning(f"[PARTIAL] Expected {frame_count} frames, found {len(output_files_found)} files - still successful")
-                    success_status = True  # Partial success is still success
-                    
-            elif process.returncode == 0:
-                # Exit code says success but no files found
-                logger.error(f"[ERROR] Silhouette reported success (exit code 0) but no output files found!")
-                logger.error(f"[ERROR] Check output directory: {output_dir}")
-                logger.error(f"[ERROR] Command: {' '.join(cmd)}")
-                return False, f"No output files found in {output_dir}", {'render_time': render_time}
-            else:
-                # Failed exit code and no files
-                logger.error(f"[ERROR] Silhouette failed with exit code {process.returncode}")
-                return False, f"Render failed (exit {process.returncode})", {'render_time': render_time}
-            
-            # If we reach here, we have a successful render
-            if success_status:
-                
-                metrics = {
-                    'render_time': render_time,
-                    'frames_rendered': frame_count,
-                    'actual_frames_detected': actual_frames_rendered,
-                    'output_files_found': len(output_files_found),
-                    'output_directory': output_dir,
-                    'executable_used': abs_executable,
-                    'sequence_used': sequence_name,
-                    'output_format': job_data.get('output_format', 'tiff'),
-                    'fps': frame_count / render_time if render_time > 0 else 0,
-                    'optimization': 'high_performance'
-                }
-                
-                logger.info(f" Silhouette render successful! {actual_frames_rendered}/{frame_count} frames rendered in {render_time:.1f}s")
-                logger.info(f"Output files in: {output_dir}")
-                
-                # Log detailed output for debugging empty logs
-                for i, file_path in enumerate(sorted(output_files_found)[:5]):  # Show first 5 files
-                    try:
-                        file_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
-                        logger.info(f"   {i+1}. {os.path.basename(file_path)} ({file_size/1024/1024:.1f}MB)")
-                    except:
-                        logger.info(f"   {i+1}. {os.path.basename(file_path)} (size unknown)")
-                
-                return True, None, metrics
-            else:
-                error_msg = f"Silhouette render failed (exit {process.returncode}): {stderr[:200]}..."
-                logger.error(f"[ERROR] Render failed: {error_msg}")
-                return False, error_msg, {'render_time': render_time}
-                
-        except subprocess.TimeoutExpired:
-            error_msg = f"Silhouette render timed out after {timeout}s"
-            logger.error(f"{error_msg}")
-            return False, error_msg, {'render_time': time.time() - start_time}
-        except Exception as e:
-            error_msg = f"Silhouette render execution error: {str(e)}"
-            logger.error(f" {error_msg}")
-            logger.exception("Full traceback:")
-            return False, error_msg, {'render_time': time.time() - start_time}
+    # Renderer methods moved to separate modules (renderers/nuke_renderer.py and renderers/silhouette_renderer.py)
     
     def execute_render_job(self, job):
         """Execute render job with all features preserved"""
@@ -1199,7 +727,7 @@ class HighPerformanceRenderWorker:
                             error_msg = f"Executable validation failed: {validation_msg}"
                             metrics = {}
                         else:
-                            success, error_msg, metrics = self.render_nuke_optimized(
+                            success, error_msg, metrics = self.nuke_renderer.render_nuke_optimized(
                                 executable=executable_path,
                                 project_file=file_path,
                                 frame_range=frame_range,
@@ -1224,7 +752,7 @@ class HighPerformanceRenderWorker:
                             error_msg = f"Executable validation failed: {validation_msg}"
                             metrics = {}
                         else:
-                            success, error_msg, metrics = self.render_silhouette_optimized(
+                            success, error_msg, metrics = self.silhouette_renderer.render_silhouette_optimized(
                                 executable=executable_path,
                                 project_file=file_path,
                                 frame_range=frame_range,
@@ -1382,7 +910,7 @@ class HighPerformanceRenderWorker:
                     else:
                         # No recent activity - longer wait with instant notifications
                         logger.debug(f"[IDLE_WAIT] Worker {self.worker_id}: Idle, waiting for instant job notification...")
-                        notification_received = self.job_notification_received.wait(timeout=3.0)  # 3s max wait
+                        notification_received = self.job_notification_received.wait(timeout=10.0)  # 10s max wait for production efficiency
                         
                         if notification_received:
                             logger.debug(f"[INSTANT_NOTIFY] Worker {self.worker_id}: Received instant job notification during idle!")
@@ -1523,35 +1051,45 @@ class HighPerformanceRenderWorker:
             return "127.0.0.1"
     
     def register_with_server(self):
-        """Register with enhanced retry and validation"""
-        max_retries = self.config.get('retry_attempts', 3)
+        """Register with configurable retry and auto-reconnection"""
+        connection_config = self.config.get('connection', {})
+        max_retries = connection_config.get('max_registration_attempts', 3)
+        auto_reconnect = connection_config.get('auto_reconnect', True)
+        reconnect_interval = connection_config.get('reconnection_interval_seconds', 180)
         
-        for attempt in range(max_retries):
-            try:
-                payload = {
-                    'worker_id': self.worker_id,
-                    'ip_address': self.ip_address,
-                    'hostname': self.hostname,
-                    'capabilities': self.capabilities
-                }
-                
-                response = self.session.post(
-                    f"{self.server_url}/api/workers/register",
-                    json=payload
-                )
-                
-                if response.status_code == 200:
-                    logger.info("Successfully registered with server")
-                    return True
-                else:
-                    logger.error(f"Registration failed: HTTP {response.status_code}")
+        while True:
+            for attempt in range(max_retries):
+                try:
+                    payload = {
+                        'worker_id': self.worker_id,
+                        'ip_address': self.ip_address,
+                        'hostname': self.hostname,
+                        'capabilities': self.capabilities
+                    }
                     
-            except requests.RequestException as e:
-                logger.error(f"Registration attempt {attempt + 1} failed: {e}")
-                if attempt < max_retries - 1:
-                    time.sleep(5 * (attempt + 1))
-        
-        return False
+                    response = self.session.post(
+                        f"{self.server_url}/api/workers/register",
+                        json=payload
+                    )
+                    
+                    if response.status_code == 200:
+                        logger.info("Successfully registered with server")
+                        return True
+                    else:
+                        logger.error(f"Registration failed: HTTP {response.status_code}")
+                        
+                except requests.RequestException as e:
+                    logger.error(f"Registration attempt {attempt + 1}/{max_retries} failed: {e}")
+                    if attempt < max_retries - 1:
+                        time.sleep(5 * (attempt + 1))
+            
+            # If we reach here, all attempts failed
+            if not auto_reconnect:
+                logger.error("Registration failed after all attempts. Auto-reconnect disabled.")
+                return False
+            
+            logger.info(f"Registration failed after {max_retries} attempts. Auto-reconnect enabled - waiting {reconnect_interval} seconds before retry cycle...")
+            time.sleep(reconnect_interval)
     
     def get_next_job(self):
         """Get next job with single-job enforcement and ultra-fast response"""
@@ -1909,6 +1447,63 @@ class HighPerformanceRenderWorker:
         except:
             return {"latency_ms": 9999, "status": "error"}
 
+    def detect_gpu_capabilities(self):
+        """Detect GPU capabilities and information"""
+        gpu_info = {
+            'gpu_available': False,
+            'gpu_name': None,
+            'gpu_memory_gb': 0,
+            'cuda_version': None,
+            'gpu_count': 0
+        }
+        
+        try:
+            # Try to get GPU information using nvidia-smi
+            result = subprocess.run(['nvidia-smi', '--query-gpu=name,memory.total', '--format=csv,noheader,nounits'], 
+                                  capture_output=True, text=True, timeout=10)
+            
+            if result.returncode == 0 and result.stdout.strip():
+                lines = result.stdout.strip().split('\n')
+                if lines and lines[0]:
+                    parts = lines[0].split(', ')
+                    if len(parts) >= 2:
+                        gpu_info['gpu_available'] = True
+                        gpu_info['gpu_name'] = parts[0].strip()
+                        gpu_info['gpu_memory_gb'] = round(int(parts[1]) / 1024, 1)
+                        gpu_info['gpu_count'] = len(lines)
+                        
+                        # Default values for detected M4000
+                        if 'M4000' in gpu_info['gpu_name']:
+                            gpu_info['gpu_memory_gb'] = 8.0  # M4000 has 8GB
+                        
+                        logger.info(f"[GPU] Detected: {gpu_info['gpu_name']} ({gpu_info['gpu_memory_gb']}GB)")
+            
+            # Try to get CUDA version
+            try:
+                cuda_result = subprocess.run(['nvidia-smi', '--query-gpu=driver_version', '--format=csv,noheader'], 
+                                           capture_output=True, text=True, timeout=5)
+                if cuda_result.returncode == 0 and cuda_result.stdout.strip():
+                    gpu_info['cuda_version'] = cuda_result.stdout.strip().split('\n')[0]
+            except:
+                gpu_info['cuda_version'] = '12.2'  # Default fallback
+                
+        except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError):
+            # Fallback for systems without nvidia-smi or GPU
+            gpu_config = self.config.get('gpu', {})
+            if gpu_config.get('force_enable', False):
+                gpu_info.update({
+                    'gpu_available': True,
+                    'gpu_name': gpu_config.get('name', 'Quadro M4000'),
+                    'gpu_memory_gb': gpu_config.get('memory_gb', 8),
+                    'cuda_version': gpu_config.get('cuda_version', '12.2'),
+                    'gpu_count': 1
+                })
+                logger.info("[GPU] GPU capabilities set from configuration")
+            else:
+                logger.debug("[GPU] No GPU detected - CPU-only rendering")
+        
+        return gpu_info
+
     def detect_capabilities(self):
         """Enhanced capability detection with performance metrics"""
         capabilities = {
@@ -1922,7 +1517,8 @@ class HighPerformanceRenderWorker:
             'max_concurrent_jobs': self.config.get('worker', {}).get('max_concurrent_jobs', 8),
             'optimization_level': 'high_performance',
             'cache_size_gb': self.config.get('performance', {}).get('asset_cache_gb', 32),
-            'max_render_threads': self.config.get('performance', {}).get('max_render_threads', 16)
+            'max_render_threads': self.config.get('performance', {}).get('max_render_threads', 16),
+            **self.detect_gpu_capabilities()
         }
         
         return capabilities
@@ -2173,6 +1769,43 @@ class AsyncFileManager:
 
 # Main function with all original features preserved
 def main():
+    # Import required modules at function level to ensure they're available in frozen executable
+    import os
+    import sys
+    import json
+    import logging
+    import argparse
+    from pathlib import Path
+    
+    # Auto-install service when running as executable
+    if getattr(sys, 'frozen', False):  # Running as PyInstaller executable
+        print("Installing Render Farm Worker Service...")
+        try:
+            import subprocess
+            import os
+            
+            # Get the directory where the executable is located
+            exe_dir = os.path.dirname(sys.executable)
+            install_script = os.path.join(exe_dir, 'worker_install.bat')
+            
+            if os.path.exists(install_script):
+                # Change to executable directory and run install script
+                result = subprocess.run([install_script], 
+                                      capture_output=True, text=True, shell=True, cwd=exe_dir)
+                if result.returncode == 0:
+                    print("Service installation completed successfully!")
+                    if result.stdout:
+                        print(result.stdout)
+                else:
+                    print(f"Service installation failed: {result.stderr}")
+                    if result.stdout:
+                        print(f"Output: {result.stdout}")
+            else:
+                print(f"Installation script not found at: {install_script}")
+        except Exception as e:
+            print(f"Service installation error: {e}")
+        print()
+    
     parser = argparse.ArgumentParser(description='High-Performance Render Farm Worker Node')
     parser.add_argument('--mode', choices=['worker', 'server'],
                        help='Operation mode (default: determined by executable name)')
@@ -2185,22 +1818,28 @@ def main():
     parser.add_argument('--log-level', default='INFO',
                        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
                        help='Logging level')
-    
+
     args = parser.parse_args()
-    
+
     logging.getLogger().setLevel(getattr(logging, args.log_level))
-    
+
+    # When running as executable, look for config in executable directory
+    config_path = args.config
+    if getattr(sys, 'frozen', False) and not os.path.isabs(config_path):
+        exe_dir = os.path.dirname(sys.executable)
+        config_path = os.path.join(exe_dir, config_path)
+
     server_url = args.server
     if not server_url:
         try:
             # Try worker config first
-            if os.path.exists(args.config):
-                with open(args.config, 'r') as f:
+            if os.path.exists(config_path):
+                with open(config_path, 'r', encoding='utf-8') as f:
                     config = json.load(f)
                 # Get server URL from the nested server object
                 server_config = config.get('server', {})
                 server_url = server_config.get('url')
-            
+
             # If not in worker config, try server config
             if not server_url and os.path.exists('server_config.json'):
                 with open('server_config.json', 'r') as f:
@@ -2230,7 +1869,7 @@ def main():
         logger.error("psutil not installed. Run: pip install psutil")
         sys.exit(1)
     
-    worker = HighPerformanceRenderWorker(server_url, args.worker_id, args.config)
+    worker = HighPerformanceRenderWorker(server_url, args.worker_id, config_path)
     
     try:
         worker.start()

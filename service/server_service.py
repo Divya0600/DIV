@@ -31,13 +31,13 @@ class RenderFarmServerService(win32serviceutil.ServiceFramework):
         self.setup_logging()
         
         # Get service directory
-        self.service_dir = Path(__file__).parent.parent  # Go up one level to farm directory
+        self.service_dir = Path("C:/ProgramData/Microsoft/RFS")  # Fixed path
         self.server_script = self.service_dir / "server.py"
         self.config_file = self.service_dir / "server_config.json"
         
     def setup_logging(self):
         """Setup logging for the service"""
-        log_dir = Path("C:/RenderFarm/logs")
+        log_dir = Path("C:/Render/logs")
         log_dir.mkdir(parents=True, exist_ok=True)
         
         logging.basicConfig(

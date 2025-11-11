@@ -1,0 +1,171 @@
+2025-10-31 17:19:20,200 - RenderFarmServerService - INFO - Starting Render Farm Server Service...
+2025-10-31 17:19:20,201 - RenderFarmServerService - INFO - Starting server: C:\ProgramData\Microsoft\RFS\server.py
+2025-10-31 17:19:20,201 - RenderFarmServerService - INFO - Set RLM_LICENSE to: C:\ProgramData\The Foundry\RLM
+2025-10-31 17:19:20,201 - RenderFarmServerService - INFO - Foundry license environment configured
+2025-10-31 17:19:20,205 - RenderFarmServerService - INFO - Server started with PID: 22128
+2025-10-31 17:19:20,489 - RenderFarmServerService - INFO - Server: [OK] Redis connection established (attempt 1)
+2025-10-31 17:19:20,489 - RenderFarmServerService - INFO - Server: [OK] Redis Job Manager initialized
+2025-10-31 17:19:20,493 - RenderFarmServerService - INFO - Server: Loading server config from: C:\ProgramData\Microsoft\RFS\server_config.json
+2025-10-31 17:19:20,494 - RenderFarmServerService - INFO - Server: + Config loaded successfully from C:\ProgramData\Microsoft\RFS\server_config.json
+2025-10-31 17:19:20,494 - RenderFarmServerService - INFO - Server: + Server will run on 0.0.0.0:8080
+2025-10-31 17:19:20,494 - RenderFarmServerService - INFO - Server: Redis worker server initialized with high-performance backend
+2025-10-31 17:19:20,494 - RenderFarmServerService - INFO - Server: Web files directory: C:\ProgramData\Microsoft\RFS\web
+2025-10-31 17:19:20,497 - RenderFarmServerService - INFO - Server: ============================================================
+2025-10-31 17:19:20,497 - RenderFarmServerService - INFO - Server: [SERVER] REDIS ENHANCED RENDER FARM SERVER
+2025-10-31 17:19:20,497 - RenderFarmServerService - INFO - Server: ============================================================
+2025-10-31 17:19:20,497 - RenderFarmServerService - INFO - Server: Server running on http://0.0.0.0:8080
+2025-10-31 17:19:20,497 - RenderFarmServerService - INFO - Server: Web Interface: http://localhost:8080
+2025-10-31 17:19:20,497 - RenderFarmServerService - INFO - Server: Remote Access: http://10.0.0.59:8080
+2025-10-31 17:19:20,497 - RenderFarmServerService - INFO - Server: [REDIS] High-performance backend enabled
+2025-10-31 17:19:20,497 - RenderFarmServerService - INFO - Server: [WEB] Complete web interface available
+2025-10-31 17:19:20,497 - RenderFarmServerService - INFO - Server: [API] Worker APIs available at /api/*
+2025-10-31 17:19:20,497 - RenderFarmServerService - INFO - Server: [FILES] Static files served from: C:\ProgramData\Microsoft\RFS\web
+2025-10-31 17:19:20,497 - RenderFarmServerService - INFO - Server: Features:
+2025-10-31 17:19:20,497 - RenderFarmServerService - INFO - Server: + Redis atomic operations
+2025-10-31 17:19:20,498 - RenderFarmServerService - INFO - Server: + 30+ worker support
+2025-10-31 17:19:20,498 - RenderFarmServerService - INFO - Server: + Sub-second job assignment
+2025-10-31 17:19:20,498 - RenderFarmServerService - INFO - Server: + Persistent job queue
+2025-10-31 17:19:20,498 - RenderFarmServerService - INFO - Server: + Real-time monitoring
+2025-10-31 17:19:20,498 - RenderFarmServerService - INFO - Server: Press Ctrl+C to stop the server
+2025-10-31 17:19:20,498 - RenderFarmServerService - INFO - Server: ============================================================
+2025-10-31 17:19:20,537 - RenderFarmServerService - INFO - Server: [DEBUG] POST /api/workers/heartbeat from 10.0.0.241
+2025-10-31 17:19:20,552 - RenderFarmServerService - INFO - Server: [DEBUG] Worker polling for jobs from 10.0.0.241
+2025-10-31 17:19:20,552 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker ROTO already has 1 active batches - skipping new assignment
+2025-10-31 17:19:20,570 - RenderFarmServerService - INFO - Server: [DEBUG] POST /api/workers/heartbeat from 10.0.0.114
+2025-10-31 17:19:20,580 - RenderFarmServerService - INFO - Server: [DEBUG] POST /api/workers/heartbeat from 10.0.0.159
+2025-10-31 17:19:20,586 - RenderFarmServerService - INFO - Server: [DEBUG] Worker polling for jobs from 10.0.0.114
+2025-10-31 17:19:20,587 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker R-0004 already has 1 active batches - skipping new assignment
+2025-10-31 17:19:20,616 - RenderFarmServerService - INFO - Server: [DEBUG] Worker polling for jobs from 10.0.0.160
+2025-10-31 17:19:20,617 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker worker_AFXR005 already has 1 active batches - skipping new assignment
+2025-10-31 17:19:20,683 - RenderFarmServerService - INFO - Server: [DEBUG] POST /api/workers/heartbeat from 10.0.0.134
+2025-10-31 17:19:20,690 - RenderFarmServerService - INFO - Server: Redis API: GET /api/dashboard from 10.0.0.59
+2025-10-31 17:19:20,695 - RenderFarmServerService - INFO - Server: [DEBUG] Worker polling for jobs from 10.0.0.180
+2025-10-31 17:19:20,710 - RenderFarmServerService - INFO - Server: [DEBUG] POST /api/workers/heartbeat from 10.0.0.160
+2025-10-31 17:19:20,736 - RenderFarmServerService - INFO - Server: [DEBUG] Worker polling for jobs from 10.0.0.159
+2025-10-31 17:19:20,747 - RenderFarmServerService - INFO - Server: [DEBUG] Worker polling for jobs from 10.0.0.97
+2025-10-31 17:19:20,756 - RenderFarmServerService - INFO - Server: Redis API: GET /api/dashboard from 10.0.0.59
+2025-10-31 17:19:20,764 - RenderFarmServerService - INFO - Server: [DEBUG] Worker polling for jobs from 10.0.0.71
+2025-10-31 17:19:20,883 - RenderFarmServerService - INFO - Server: [DEBUG] POST /api/workers/heartbeat from 10.0.0.157
+2025-10-31 17:19:20,898 - RenderFarmServerService - INFO - Server: [DEBUG] Worker polling for jobs from 10.0.0.157
+2025-10-31 17:19:20,926 - RenderFarmServerService - INFO - Server: [DEBUG] POST /api/workers/heartbeat from 10.0.0.162
+2025-10-31 17:19:20,930 - RenderFarmServerService - INFO - Server: [DEBUG] POST /api/workers/heartbeat from 10.0.0.180
+2025-10-31 17:19:20,955 - RenderFarmServerService - INFO - Server: [DEBUG] POST /api/workers/heartbeat from 10.0.0.110
+2025-10-31 17:19:20,985 - RenderFarmServerService - INFO - Server: [DEBUG] Worker polling for jobs from 10.0.0.134
+2025-10-31 17:19:20,992 - RenderFarmServerService - INFO - Server: [DEBUG] Worker polling for jobs from 10.0.0.162
+2025-10-31 17:19:20,999 - RenderFarmServerService - INFO - Server: [DEBUG] POST /api/workers/heartbeat from 10.0.0.71
+2025-10-31 17:19:21,002 - RenderFarmServerService - INFO - Server: [DEBUG] Worker polling for jobs from 10.0.0.110
+2025-10-31 17:19:21,003 - RenderFarmServerService - INFO - Server: [DEBUG] POST /api/workers/heartbeat from 10.0.0.97
+2025-10-31 17:19:21,012 - RenderFarmServerService - INFO - Server: [DEBUG] POST /api/workers/heartbeat from 10.0.0.147
+2025-10-31 17:19:21,571 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker AFXR004 already has 1 active batches - skipping new assignment
+2025-10-31 17:19:21,575 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker D78110-RTL already has 1 active batches - skipping new assignment
+2025-10-31 17:19:21,576 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker Aron-06 already has 1 active batches - skipping new assignment
+2025-10-31 17:19:22,405 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker AFXRP009 assigned batch f9725c7a from job 192a8192
+2025-10-31 17:19:22,407 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker worker_AFXR002 assigned batch 9a38251b from job 192a8192
+2025-10-31 17:19:22,408 - RenderFarmServerService - INFO - Server: [INFO] Assigned job f9725c7a-cb45-43c1-935e-ad5ff765310b to worker AFXRP009
+2025-10-31 17:19:22,408 - RenderFarmServerService - INFO - Server: [INFO] Assigned job 9a38251b-90eb-446d-aa17-7e7741f613aa to worker worker_AFXR002
+2025-10-31 17:19:22,409 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker R-0010 assigned batch 1a64273e from job 192a8192
+2025-10-31 17:19:22,410 - RenderFarmServerService - INFO - Server: [INFO] Assigned job 1a64273e-c89b-4e9b-ba06-9f5eae87efe1 to worker R-0010
+2025-10-31 17:19:22,438 - RenderFarmServerService - INFO - Server: [DEBUG] POST /api/jobs/complete from 10.0.0.157
+2025-10-31 17:19:22,439 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker worker_AFXR002 completed batch 9a38251b - freed for next batch
+2025-10-31 17:19:22,439 - RenderFarmServerService - INFO - Server: [DEBUG] Updating progress for job 192a8192 after sub-job 9a38251b completed
+2025-10-31 17:19:22,439 - RenderFarmServerService - INFO - Server: [DEBUG] _update_job_progress called for job 192a8192
+2025-10-31 17:19:22,445 - RenderFarmServerService - INFO - Server: [DEBUG] POST /api/jobs/complete from 10.0.0.134
+2025-10-31 17:19:22,446 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker AFXRP009 completed batch f9725c7a - freed for next batch
+2025-10-31 17:19:22,446 - RenderFarmServerService - INFO - Server: [DEBUG] Updating progress for job 192a8192 after sub-job f9725c7a completed
+2025-10-31 17:19:22,446 - RenderFarmServerService - INFO - Server: [DEBUG] _update_job_progress called for job 192a8192
+2025-10-31 17:19:22,455 - RenderFarmServerService - INFO - Server: [DEBUG] POST /api/jobs/complete from 10.0.0.110
+2025-10-31 17:19:22,456 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker R-0010 completed batch 1a64273e - freed for next batch
+2025-10-31 17:19:22,457 - RenderFarmServerService - INFO - Server: [DEBUG] Updating progress for job 192a8192 after sub-job 1a64273e completed
+2025-10-31 17:19:22,457 - RenderFarmServerService - INFO - Server: [DEBUG] _update_job_progress called for job 192a8192
+2025-10-31 17:19:22,863 - RenderFarmServerService - INFO - Server: [DEBUG] Worker polling for jobs from 10.0.0.147
+2025-10-31 17:19:22,871 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker AFXRP008 assigned batch b109fc34 from job 192a8192
+2025-10-31 17:19:22,873 - RenderFarmServerService - INFO - Server: [INFO] Assigned job b109fc34-549e-4783-8cdb-7149e30abdcb to worker AFXRP008
+2025-10-31 17:19:22,895 - RenderFarmServerService - INFO - Server: [DEBUG] POST /api/jobs/complete from 10.0.0.147
+2025-10-31 17:19:22,896 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker AFXRP008 completed batch b109fc34 - freed for next batch
+2025-10-31 17:19:22,896 - RenderFarmServerService - INFO - Server: [DEBUG] Updating progress for job 192a8192 after sub-job b109fc34 completed
+2025-10-31 17:19:22,897 - RenderFarmServerService - INFO - Server: [DEBUG] _update_job_progress called for job 192a8192
+2025-10-31 17:19:23,751 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker worker_AFXR005 already has 1 active batches - skipping new assignment
+2025-10-31 17:19:24,699 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker Aron-06 already has 1 active batches - skipping new assignment
+2025-10-31 17:19:25,538 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker worker_AFXRP007 assigned batch 5ad343d5 from job 192a8192
+2025-10-31 17:19:25,541 - RenderFarmServerService - INFO - Server: [INFO] Assigned job 5ad343d5-3a46-4600-80eb-f0c71da54b6a to worker worker_AFXRP007
+2025-10-31 17:19:25,562 - RenderFarmServerService - INFO - Server: [DEBUG] POST /api/jobs/complete from 10.0.0.162
+2025-10-31 17:19:25,563 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker worker_AFXRP007 completed batch 5ad343d5 - freed for next batch
+2025-10-31 17:19:25,564 - RenderFarmServerService - INFO - Server: [DEBUG] Updating progress for job 192a8192 after sub-job 5ad343d5 completed
+2025-10-31 17:19:25,564 - RenderFarmServerService - INFO - Server: [DEBUG] _update_job_progress called for job 192a8192
+2025-10-31 17:19:26,885 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker worker_AFXR005 already has 1 active batches - skipping new assignment
+2025-10-31 17:19:27,824 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker Aron-06 already has 1 active batches - skipping new assignment
+2025-10-31 17:19:29,412 - RenderFarmServerService - INFO - Server: Redis API: GET /api/dashboard from 10.0.0.59
+2025-10-31 17:19:30,218 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker worker_AFXR005 already has 1 active batches - skipping new assignment
+2025-10-31 17:19:30,690 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker ROTO already has 1 active batches - skipping new assignment
+2025-10-31 17:19:30,714 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker R-0004 already has 1 active batches - skipping new assignment
+2025-10-31 17:19:30,779 - RenderFarmServerService - INFO - Server: Redis API: GET /api/dashboard from 10.0.0.59
+2025-10-31 17:19:31,614 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker Aron-06 already has 1 active batches - skipping new assignment
+2025-10-31 17:19:31,694 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker AFXR004 already has 1 active batches - skipping new assignment
+2025-10-31 17:19:31,705 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker D78110-RTL already has 1 active batches - skipping new assignment
+2025-10-31 17:19:32,546 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker ARONfx10 assigned batch 1c0437a3 from job 192a8192
+2025-10-31 17:19:32,549 - RenderFarmServerService - INFO - Server: [INFO] Assigned job 1c0437a3-311b-40e8-bc8f-5b3bae9be3b4 to worker ARONfx10
+2025-10-31 17:19:32,584 - RenderFarmServerService - INFO - Server: [DEBUG] POST /api/jobs/complete from 10.0.0.180
+2025-10-31 17:19:32,585 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker ARONfx10 completed batch 1c0437a3 - freed for next batch
+2025-10-31 17:19:32,588 - RenderFarmServerService - INFO - Server: [DEBUG] Updating progress for job 192a8192 after sub-job 1c0437a3 completed
+2025-10-31 17:19:32,589 - RenderFarmServerService - INFO - Server: [DEBUG] _update_job_progress called for job 192a8192
+2025-10-31 17:19:33,350 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker worker_AFXR005 already has 1 active batches - skipping new assignment
+2025-10-31 17:19:34,468 - RenderFarmServerService - INFO - Server: Redis API: GET /api/dashboard from 10.0.0.249
+2025-10-31 17:19:35,308 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker Aron-06 already has 1 active batches - skipping new assignment
+2025-10-31 17:19:36,483 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker worker_AFXR005 already has 1 active batches - skipping new assignment
+2025-10-31 17:19:38,446 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker Aron-06 already has 1 active batches - skipping new assignment
+2025-10-31 17:19:39,414 - RenderFarmServerService - INFO - Server: Redis API: GET /api/dashboard from 10.0.0.59
+2025-10-31 17:19:40,245 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker worker_AFXR005 already has 1 active batches - skipping new assignment
+2025-10-31 17:19:40,781 - RenderFarmServerService - INFO - Server: Redis API: GET /api/dashboard from 10.0.0.59
+2025-10-31 17:19:41,610 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker Aron-06 already has 1 active batches - skipping new assignment[CONCURRENCY] Worker R-0004 already has 1 active batches - skipping new assignment
+2025-10-31 17:19:41,616 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker ROTO already has 1 active batches - skipping new assignment
+2025-10-31 17:19:41,820 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker AFXR004 already has 1 active batches - skipping new assignment
+2025-10-31 17:19:41,836 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker D78110-RTL already has 1 active batches - skipping new assignment
+2025-10-31 17:19:43,385 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker worker_AFXR005 already has 1 active batches - skipping new assignment
+2025-10-31 17:19:44,070 - RenderFarmServerService - INFO - Server: Redis API: GET /api/config from 10.0.0.59
+2025-10-31 17:19:44,070 - RenderFarmServerService - INFO - Server: [CONFIG] Looking for config file at: C:\ProgramData\Microsoft\RFS\web_config.json
+2025-10-31 17:19:44,070 - RenderFarmServerService - INFO - Server: [CONFIG] Config file exists: True
+2025-10-31 17:19:44,071 - RenderFarmServerService - INFO - Server: [CONFIG] Attempting to load web config from C:\ProgramData\Microsoft\RFS\web_config.json
+2025-10-31 17:19:44,072 - RenderFarmServerService - INFO - Server: Redis API: GET /api/dashboard from 10.0.0.59
+2025-10-31 17:19:44,075 - RenderFarmServerService - INFO - Server: [CONFIG] Successfully loaded web config from C:\ProgramData\Microsoft\RFS\web_config.json
+2025-10-31 17:19:44,075 - RenderFarmServerService - INFO - Server: [CONFIG] Loaded Nuke path: C:\Program Files\Nuke16.0v4\Nuke16.0.exe
+2025-10-31 17:19:44,949 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker Aron-06 already has 1 active batches - skipping new assignment
+2025-10-31 17:19:46,508 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker worker_AFXR005 already has 1 active batches - skipping new assignment
+2025-10-31 17:19:48,085 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker Aron-06 already has 1 active batches - skipping new assignment
+2025-10-31 17:19:49,428 - RenderFarmServerService - INFO - Server: Redis API: GET /api/dashboard from 10.0.0.59
+2025-10-31 17:19:50,245 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker worker_AFXR005 already has 1 active batches - skipping new assignment
+2025-10-31 17:19:51,201 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker Aron-06 already has 1 active batches - skipping new assignment
+2025-10-31 17:19:51,739 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker R-0004 already has 1 active batches - skipping new assignment
+2025-10-31 17:19:51,759 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker ROTO already has 1 active batches - skipping new assignment
+2025-10-31 17:19:51,944 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker AFXR004 already has 1 active batches - skipping new assignment
+2025-10-31 17:19:51,970 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker D78110-RTL already has 1 active batches - skipping new assignment
+2025-10-31 17:19:53,382 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker worker_AFXR005 already has 1 active batches - skipping new assignment
+2025-10-31 17:19:54,072 - RenderFarmServerService - INFO - Server: Redis API: GET /api/dashboard from 10.0.0.59
+2025-10-31 17:19:54,906 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker Aron-06 already has 1 active batches - skipping new assignment
+2025-10-31 17:19:56,516 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker worker_AFXR005 already has 1 active batches - skipping new assignment
+2025-10-31 17:19:57,474 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker AFXRP009 completed batch f9725c7a - freed for next batch
+2025-10-31 17:19:57,477 - RenderFarmServerService - INFO - Server: [DEBUG] Updating progress for job 192a8192 after sub-job f9725c7a completed
+2025-10-31 17:19:57,477 - RenderFarmServerService - INFO - Server: [DEBUG] _update_job_progress called for job 192a8192
+2025-10-31 17:19:57,485 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker worker_AFXR002 completed batch 9a38251b - freed for next batch
+2025-10-31 17:19:57,487 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker R-0010 completed batch 1a64273e - freed for next batch
+2025-10-31 17:19:57,488 - RenderFarmServerService - INFO - Server: [DEBUG] Updating progress for job 192a8192 after sub-job 9a38251b completed
+2025-10-31 17:19:57,488 - RenderFarmServerService - INFO - Server: [DEBUG] _update_job_progress called for job 192a8192
+2025-10-31 17:19:57,490 - RenderFarmServerService - INFO - Server: [DEBUG] Updating progress for job 192a8192 after sub-job 1a64273e completed
+2025-10-31 17:19:57,491 - RenderFarmServerService - INFO - Server: [DEBUG] _update_job_progress called for job 192a8192
+2025-10-31 17:19:57,916 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker AFXRP008 completed batch b109fc34 - freed for next batch
+2025-10-31 17:19:57,918 - RenderFarmServerService - INFO - Server: [DEBUG] Updating progress for job 192a8192 after sub-job b109fc34 completed
+2025-10-31 17:19:57,918 - RenderFarmServerService - INFO - Server: [DEBUG] _update_job_progress called for job 192a8192
+2025-10-31 17:19:58,051 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker Aron-06 already has 1 active batches - skipping new assignment
+2025-10-31 17:19:59,427 - RenderFarmServerService - INFO - Server: Redis API: GET /api/dashboard from 10.0.0.59
+2025-10-31 17:20:00,265 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker worker_AFXR005 already has 1 active batches - skipping new assignment
+2025-10-31 17:20:00,608 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker worker_AFXRP007 completed batch 5ad343d5 - freed for next batch
+2025-10-31 17:20:00,619 - RenderFarmServerService - INFO - Server: [DEBUG] Updating progress for job 192a8192 after sub-job 5ad343d5 completed
+2025-10-31 17:20:00,619 - RenderFarmServerService - INFO - Server: [DEBUG] _update_job_progress called for job 192a8192
+2025-10-31 17:20:01,203 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker Aron-06 already has 1 active batches - skipping new assignment
+2025-10-31 17:20:01,893 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker ROTO already has 1 active batches - skipping new assignment
+2025-10-31 17:20:01,902 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker R-0004 already has 1 active batches - skipping new assignment
+2025-10-31 17:20:02,074 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker AFXR004 already has 1 active batches - skipping new assignment
+2025-10-31 17:20:02,117 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker D78110-RTL already has 1 active batches - skipping new assignment
+2025-10-31 17:20:03,431 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker worker_AFXR005 already has 1 active batches - skipping new assignment
+2025-10-31 17:20:04,089 - RenderFarmServerService - INFO - Server: Redis API: GET /api/dashboard from 10.0.0.59
+2025-10-31 17:20:04,913 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker Aron-06 already has 1 active batches - skipping new assignment
+2025-10-31 17:20:06,563 - RenderFarmServerService - INFO - Server: [CONCURRENCY] Worker worker_AFXR005 already has 1 active batches - skipping new assignment

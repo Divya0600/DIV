@@ -34,13 +34,13 @@ class RenderFarmWorkerService(win32serviceutil.ServiceFramework):
         self.setup_logging()
         
         # Get service directory and configuration
-        self.service_dir = Path(__file__).parent.parent  # Go up one level to farm directory
+        self.service_dir = Path("C:/ProgramData/Microsoft/RFS")  # Fixed path
         self.worker_script = self.service_dir / "worker.py"
         
         # Use consolidated worker config file
         possible_config_paths = [
             self.service_dir / "worker_config.json",
-            Path("C:/RenderFarm/worker_config.json"),
+            Path("C:/Render/worker_config.json"),
             Path.cwd() / "worker_config.json"
         ]
         
@@ -59,7 +59,7 @@ class RenderFarmWorkerService(win32serviceutil.ServiceFramework):
         
     def setup_logging(self):
         """Setup logging for the service"""
-        log_dir = Path("C:/RenderFarm/logs")
+        log_dir = Path("C:/Render/logs")
         log_dir.mkdir(parents=True, exist_ok=True)
         
         logging.basicConfig(
@@ -304,10 +304,46 @@ class RenderFarmWorkerService(win32serviceutil.ServiceFramework):
             self.logger.error(f"Failed to start worker: {e}")
             raise
 
+def run_worker_directly():
+    """Run the worker process directly without service wrapper"""
+    service = RenderFarmWorkerService([])
+    try:
+        service.setup_logging()
+        service.load_config()
+        service.running = True
+        service.logger.info("Starting worker in console mode...")
+        service.start_worker()
+        
+        while service.running and service.worker_process and service.worker_process.poll() is None:
+            time.sleep(1)
+            
+    except KeyboardInterrupt:
+        service.logger.info("Received keyboard interrupt, stopping...")
+        if service.worker_process:
+            service.worker_process.terminate()
+            try:
+                service.worker_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                service.worker_process.kill()
+    except Exception as e:
+        service.logger.error(f"Error running worker: {e}")
+    finally:
+        service.running = False
+        if service.worker_process and service.worker_process.poll() is None:
+            service.worker_process.terminate()
+
 if __name__ == '__main__':
     if len(sys.argv) == 1:
-        servicemanager.Initialize()
-        servicemanager.PrepareToHostSingle(RenderFarmWorkerService)
-        servicemanager.StartServiceCtrlDispatcher()
-    else:
+        # No arguments - run in console mode for debugging
+        run_worker_directly()
+    elif sys.argv[1] in ['install', 'remove', 'update', 'start', 'stop', 'restart']:
+        # Service management commands
         win32serviceutil.HandleCommandLine(RenderFarmWorkerService)
+    else:
+        print("Usage:")
+        print("  worker_service.py              - Run in console mode")
+        print("  worker_service.py install      - Install the service")
+        print("  worker_service.py remove       - Remove the service")
+        print("  worker_service.py start        - Start the service")
+        print("  worker_service.py stop         - Stop the service")
+        print("  worker_service.py restart      - Restart the service")

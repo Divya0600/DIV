@@ -5,6 +5,7 @@ Complete Redis backend for high-performance rendering
 """
 
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from socketserver import ThreadingMixIn
 import json
 import urllib.parse
 import threading
@@ -27,8 +28,35 @@ def log_with_throttle(message, level="INFO", throttle_seconds=30):
         print(f"[{level}] {message}")
         _last_log_times[message] = current_time
 
+# Future: WebSocket job push system (to be implemented)
+# connected_workers = {}  # worker_id -> websocket connection
+
+class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
+    """Threaded HTTP server that handles multiple connections properly"""
+    daemon_threads = True
+    allow_reuse_address = True
+    request_queue_size = 500  # Increased for 20+ workers (was 100)
+
 class EnhancedAPIHandler(BaseHTTPRequestHandler):
     """Enhanced API handler with Redis backend"""
+    
+    def __init__(self, request, client_address, server):
+        # Add connection tracking and cleanup
+        self._start_time = time.time()
+        self._request_count = 0
+        super().__init__(request, client_address, server)
+    
+    def handle_one_request(self):
+        """Override to add connection cleanup"""
+        try:
+            super().handle_one_request()
+        except Exception as e:
+            print(f"[ERROR] Request handling failed: {e}")
+            # Ensure connection is closed even on error
+            try:
+                self.connection.close()
+            except:
+                pass
     
     def get_server_ip(self):
         """Get server IP address"""
@@ -107,15 +135,19 @@ class EnhancedAPIHandler(BaseHTTPRequestHandler):
     
     def do_GET(self):
         """Handle GET requests - API and static files"""
-        parsed_path = urllib.parse.urlparse(self.path)
-        path = parsed_path.path
-        
-        # API endpoints
-        if path.startswith('/api/'):
-            self.handle_api_get(path, parsed_path.query)
-        else:
-            # Static file serving
-            self.serve_static_file(path)
+        try:
+            parsed_path = urllib.parse.urlparse(self.path)
+            path = parsed_path.path
+            
+            # API endpoints
+            if path.startswith('/api/'):
+                self.handle_api_get(path, parsed_path.query)
+            else:
+                # Static file serving
+                self.serve_static_file(path)
+        except Exception as e:
+            print(f"[ERROR] GET request failed: {e}")
+            self.send_error_response(500, f"Internal server error: {e}")
     
     def handle_api_get(self, path, query_string):
         """Handle API GET requests"""
@@ -140,17 +172,84 @@ class EnhancedAPIHandler(BaseHTTPRequestHandler):
                 self.send_error_response(400, "Missing worker_id parameter")
                 
         elif path == '/api/status':
-            stats = redis_manager.get_stats()
-            status = {
-                'status': 'online',
-                'online_workers': stats['online_workers'],
-                'active_jobs': stats.get('active_jobs', 0),
-                'pending_batches': stats['pending_batches'],
-                'version': '3.0-redis-enhanced',
-                'server_ip': self.get_server_ip(),
-                'server_port': 8080
-            }
-            self.send_json_response(status)
+            try:
+                stats = redis_manager.get_stats()
+                status = {
+                    'status': 'online',
+                    'online_workers': stats['online_workers'],
+                    'active_jobs': stats.get('active_jobs', 0),
+                    'pending_batches': stats['pending_batches'],
+                    'version': '3.0-redis-enhanced',
+                    'server_ip': self.get_server_ip(),
+                    'server_port': 8080,
+                    'uptime': time.time() - getattr(self, '_start_time', time.time()),
+                    'redis_connected': True,
+                    'connection_pool': stats.get('connection_pool', {}),
+                    'server_capacity': {
+                        'request_queue_size': 500,
+                        'server_timeout': 60,
+                        'max_redis_connections': stats.get('connection_pool', {}).get('max_connections', 20)
+                    },
+                    'worker_capacity': {
+                        'online_workers': stats['online_workers'],
+                        'max_workers_recommended': 20,  # Configurable limit
+                        'connection_pool_per_worker': 10,  # From worker_config.json
+                        'total_worker_connections': stats['online_workers'] * 10
+                    }
+                }
+                self.send_json_response(status)
+            except Exception as e:
+                # If Redis is down, still respond but indicate the issue
+                status = {
+                    'status': 'degraded',
+                    'error': f'Redis connection issue: {e}',
+                    'version': '3.0-redis-enhanced',
+                    'redis_connected': False
+                }
+                self.send_json_response(status)
+                
+        elif path == '/api/dashboard':
+            # COMBINED API: Returns status + jobs + workers in single call
+            try:
+                stats = redis_manager.get_stats()
+                jobs = redis_manager.get_all_jobs()
+                workers = redis_manager.get_all_workers()
+                
+                dashboard_data = {
+                    'status': {
+                        'status': 'online',
+                        'online_workers': stats['online_workers'],
+                        'active_jobs': stats.get('active_jobs', 0),
+                        'pending_batches': stats['pending_batches'],
+                        'version': '3.0-redis-enhanced',
+                        'server_ip': self.get_server_ip(),
+                        'server_port': 8080,
+                        'uptime': time.time() - getattr(self, '_start_time', time.time()),
+                        'redis_connected': True,
+                        'worker_capacity': {
+                            'online_workers': stats['online_workers'],
+                            'max_workers_recommended': 20
+                        }
+                    },
+                    'jobs': jobs,
+                    'workers': workers,
+                    'timestamp': time.time()
+                }
+                self.send_json_response(dashboard_data)
+            except Exception as e:
+                # If Redis is down, still respond but indicate the issue
+                dashboard_data = {
+                    'status': {
+                        'status': 'degraded',
+                        'error': f'Redis connection issue: {e}',
+                        'version': '3.0-redis-enhanced',
+                        'redis_connected': False
+                    },
+                    'jobs': [],
+                    'workers': [],
+                    'timestamp': time.time()
+                }
+                self.send_json_response(dashboard_data)
             
         elif path == '/api/workers':
             try:
@@ -184,6 +283,28 @@ class EnhancedAPIHandler(BaseHTTPRequestHandler):
             except Exception as e:
                 self.send_error_response(500, f"Error getting job worker details: {e}")
                 
+        elif path == '/api/health':
+            # Simple health check endpoint
+            try:
+                # Test Redis connection
+                redis_manager.redis_client.ping()
+                health_status = {
+                    'status': 'healthy',
+                    'timestamp': time.time(),
+                    'redis': 'connected',
+                    'server': 'running'
+                }
+                self.send_json_response(health_status)
+            except Exception as e:
+                health_status = {
+                    'status': 'unhealthy',
+                    'timestamp': time.time(),
+                    'redis': 'disconnected',
+                    'server': 'running',
+                    'error': str(e)
+                }
+                self.send_json_response(health_status, 503)
+                
         elif path == '/api/config':
             # Web interface configuration from file
             try:
@@ -209,6 +330,30 @@ class EnhancedAPIHandler(BaseHTTPRequestHandler):
                 self.send_json_response(file_browser_data)
             except Exception as e:
                 self.send_error_response(500, f"Error browsing files: {e}")
+        
+        elif path == '/api/debug/redis-workers':
+            # Debug endpoint to see what's actually in Redis
+            try:
+                all_workers_raw = redis_manager.redis_client.hgetall('render:workers')
+                print(f"\n=== RAW REDIS WORKERS DATA ===")
+                for worker_id, worker_data in all_workers_raw.items():
+                    if isinstance(worker_id, bytes):
+                        worker_id = worker_id.decode('utf-8')
+                    print(f"Redis Key: '{worker_id}'")
+                    try:
+                        data = json.loads(worker_data)
+                        print(f"  Hostname: {data.get('hostname', 'unknown')}")
+                        print(f"  IP: {data.get('ip_address', 'unknown')}")
+                        print(f"  Status: {data.get('status', 'unknown')}")
+                    except:
+                        print(f"  Raw data: {worker_data}")
+                    print("")
+                print(f"================================\n")
+                
+                self.send_json_response({"workers": list(all_workers_raw.keys())})
+            except Exception as e:
+                print(f"Error getting Redis workers: {e}")
+                self.send_error_response(500, f"Error getting Redis data: {e}")
                 
         else:
             self.send_error_response(404, "Endpoint not found")
@@ -266,14 +411,19 @@ class EnhancedAPIHandler(BaseHTTPRequestHandler):
     
     def do_POST(self):
         """Handle POST requests from workers and web UI"""
-        parsed_path = urllib.parse.urlparse(self.path)
-        path = parsed_path.path
-        
-        # Throttle frequent POST endpoints to reduce log spam
-        if path in ['/api/workers/heartbeat', '/api/jobs/complete']:
-            log_with_throttle(f"POST {path} from {self.client_address[0]}", "DEBUG", 300)
-        else:
-            print(f"Redis API: POST {path} from {self.client_address[0]}")
+        try:
+            parsed_path = urllib.parse.urlparse(self.path)
+            path = parsed_path.path
+            
+            # Throttle frequent POST endpoints to reduce log spam
+            if path in ['/api/workers/heartbeat', '/api/jobs/complete']:
+                log_with_throttle(f"POST {path} from {self.client_address[0]}", "DEBUG", 300)
+            else:
+                print(f"Redis API: POST {path} from {self.client_address[0]}")
+        except Exception as e:
+            print(f"[ERROR] POST request failed: {e}")
+            self.send_error_response(500, f"Internal server error: {e}")
+            return
         
         if path == '/api/workers/register':
             try:
@@ -321,27 +471,74 @@ class EnhancedAPIHandler(BaseHTTPRequestHandler):
                 post_data = self.rfile.read(content_length)
                 data = json.loads(post_data.decode('utf-8'))
 
+                # Validate renderer and file extension compatibility
+                renderer = data.get('renderer', '').lower()
+                project_file = data.get('file_path', '')
+                
+                validation_errors = []
+                
+                # Check if project file is provided
+                if not project_file:
+                    validation_errors.append({
+                        'field': 'file_path',
+                        'message': 'Project file path is required'
+                    })
+                else:
+                    # Check if file exists
+                    if not os.path.exists(project_file):
+                        validation_errors.append({
+                            'field': 'file_path',
+                            'message': f'Project file not found: {project_file}'
+                        })
+                    else:
+                        # Validate file extension matches renderer
+                        file_ext = os.path.splitext(project_file)[1].lower()
+                        
+                        if renderer == 'nuke':
+                            if file_ext not in ['.nk', '.nuke']:
+                                validation_errors.append({
+                                    'field': 'file_path',
+                                    'message': f'Nuke renderer requires .nk or .nuke files, but got {file_ext} file. Selected file appears to be for a different renderer.'
+                                })
+                        elif renderer == 'silhouette':
+                            if file_ext not in ['.sfx']:
+                                validation_errors.append({
+                                    'field': 'file_path',
+                                    'message': f'Silhouette renderer requires .sfx files, but got {file_ext} file. Selected file appears to be for a different renderer.'
+                                })
+                        
+                        print(f"[VALIDATION] PROJECT FILE EXISTS: {project_file} (Extension: {file_ext}, Renderer: {renderer})")
+
                 # Validate executable path
                 executable_path = data.get('executable_path', '')
                 if executable_path:
                     if os.path.exists(executable_path):
                         print(f"[VALIDATION] EXECUTABLE EXISTS: {executable_path}")
                     else:
-                        print(f"[VALIDATION] EXECUTABLE NOT FOUND: {executable_path}")
+                        validation_errors.append({
+                            'field': 'executable_path',
+                            'message': f'Executable not found: {executable_path}'
+                        })
                 else:
-                    print(f"[VALIDATION] NO EXECUTABLE PATH PROVIDED")
+                    validation_errors.append({
+                        'field': 'executable_path',
+                        'message': 'Executable path is required'
+                    })
 
-                # Validate project file path
-                project_file = data.get('file_path', '')
-                if project_file:
-                    if os.path.exists(project_file):
-                        print(f"[VALIDATION] PROJECT FILE EXISTS: {project_file}")
-                    else:
-                        print(f"[VALIDATION] PROJECT FILE NOT FOUND: {project_file}")
-                else:
-                    print(f"[VALIDATION] NO PROJECT FILE PATH PROVIDED")
+                # If there are validation errors, return them
+                if validation_errors:
+                    print(f"[VALIDATION] Job submission failed: {len(validation_errors)} validation errors")
+                    for error in validation_errors:
+                        print(f"[VALIDATION ERROR] {error['field']}: {error['message']}")
+                    
+                    self.send_json_response({
+                        'status': 'validation_error',
+                        'errors': validation_errors
+                    }, 400)
+                    return
 
                 job_id = redis_manager.submit_job(data)
+                print(f"[VALIDATION] Job submission successful: {job_id}")
                 self.send_json_response({'status': 'submitted', 'job_id': job_id})
             except Exception as e:
                 self.send_error_response(500, f"Error submitting job: {e}")
@@ -470,8 +667,126 @@ class EnhancedAPIHandler(BaseHTTPRequestHandler):
             except Exception as e:
                 self.send_error_response(500, f"Error cleaning up stuck batches: {e}")
         
+        elif path == '/api/debug/worker-delete-result':
+            # Debug endpoint to log worker delete results from UI
+            try:
+                content_length = int(self.headers.get('Content-Length', 0))
+                post_data = self.rfile.read(content_length)
+                data = json.loads(post_data.decode('utf-8'))
+                
+                print(f"\n=== WORKER DELETE OPERATION RESULT ===")
+                print(f"Attempted: {data.get('attempted', 0)} workers")
+                print(f"Successful: {data.get('successful', 0)} workers")
+                print(f"Failed: {data.get('failed', 0)} workers")
+                
+                if data.get('workers'):
+                    print(f"Workers processed:")
+                    for worker in data['workers']:
+                        print(f"  - ID: {worker.get('id', 'unknown')}, Hostname: {worker.get('hostname', 'unknown')}, Status: {worker.get('status', 'unknown')}")
+                
+                if data.get('errors'):
+                    print(f"Errors encountered:")
+                    for error in data['errors']:
+                        print(f"  - {error.get('worker', 'unknown')}: {error.get('error', 'unknown error')}")
+                
+                print(f"==========================================\n")
+                
+                self.send_json_response({"status": "logged"})
+            except Exception as e:
+                print(f"Error logging worker delete results: {e}")
+                self.send_error_response(500, f"Error logging results: {e}")
+        
+        elif path == '/api/debug/redis-workers':
+            # Debug endpoint to see what's actually in Redis
+            try:
+                all_workers_raw = redis_manager.redis_client.hgetall('render:workers')
+                print(f"\n=== RAW REDIS WORKERS DATA ===")
+                for worker_id, worker_data in all_workers_raw.items():
+                    if isinstance(worker_id, bytes):
+                        worker_id = worker_id.decode('utf-8')
+                    print(f"Redis Key: '{worker_id}'")
+                    try:
+                        data = json.loads(worker_data)
+                        print(f"  Hostname: {data.get('hostname', 'unknown')}")
+                        print(f"  IP: {data.get('ip_address', 'unknown')}")
+                        print(f"  Status: {data.get('status', 'unknown')}")
+                    except:
+                        print(f"  Raw data: {worker_data}")
+                    print("")
+                print(f"================================\n")
+                
+                self.send_json_response({"workers": list(all_workers_raw.keys())})
+            except Exception as e:
+                print(f"Error getting Redis workers: {e}")
+                self.send_error_response(500, f"Error getting Redis data: {e}")
+        
+        elif path == '/api/debug/worker-jobs':
+            # Debug endpoint to see worker job assignments
+            try:
+                worker_jobs_data = {}
+                all_workers_raw = redis_manager.redis_client.hgetall('render:workers')
+                
+                print(f"\n=== WORKER JOB ASSIGNMENTS DEBUG ===")
+                for worker_id, worker_data in all_workers_raw.items():
+                    if isinstance(worker_id, bytes):
+                        worker_id = worker_id.decode('utf-8')
+                    
+                    # Get worker's current job assignments
+                    active_jobs = redis_manager.redis_client.smembers(f"render:worker:{worker_id}:jobs")
+                    active_job_list = [job.decode('utf-8') if isinstance(job, bytes) else job for job in active_jobs]
+                    
+                    print(f"Worker '{worker_id}':")
+                    print(f"  Active jobs count: {len(active_job_list)}")
+                    
+                    for job_id in active_job_list:
+                        # Check if this job actually exists and its status
+                        sub_job_data = redis_manager.redis_client.hget(f"render:subjobs:{job_id}", "data")
+                        if sub_job_data:
+                            sub_job = json.loads(sub_job_data)
+                            status = sub_job.get('status', 'unknown')
+                            print(f"    - Job {job_id[:8]}: {status}")
+                        else:
+                            print(f"    - Job {job_id[:8]}: MISSING DATA (stale reference)")
+                    
+                    worker_jobs_data[worker_id] = {
+                        'active_count': len(active_job_list),
+                        'job_ids': active_job_list
+                    }
+                
+                print(f"=============================================\n")
+                
+                self.send_json_response({"worker_jobs": worker_jobs_data})
+            except Exception as e:
+                print(f"Error getting worker job data: {e}")
+                self.send_error_response(500, f"Error getting worker job data: {e}")
+        
         else:
             self.send_error_response(404, "Endpoint not found")
+    
+    def do_DELETE(self):
+        """Handle DELETE requests"""
+        parsed_path = urllib.parse.urlparse(self.path)
+        path = parsed_path.path
+        
+        print(f"Redis API: DELETE {path} from {self.client_address[0]}")
+        
+        if path.startswith('/api/workers/'):
+            # Worker delete endpoint: /api/workers/{worker_id}
+            try:
+                worker_id = path.split('/')[-1]  # Extract worker_id from path
+                if not worker_id:
+                    self.send_error_response(400, "Missing worker_id")
+                    return
+                    
+                success = redis_manager.delete_worker(worker_id)
+                if success:
+                    self.send_json_response({"status": "deleted", "worker_id": worker_id})
+                else:
+                    self.send_error_response(404, f"Worker {worker_id} not found or could not be deleted")
+            except Exception as e:
+                self.send_error_response(500, f"Error deleting worker: {e}")
+        else:
+            self.send_error_response(404, "DELETE endpoint not found")
     
     def send_json_response(self, data, status_code=200):
         """Send JSON response with connection validation"""
@@ -492,6 +807,19 @@ class EnhancedAPIHandler(BaseHTTPRequestHandler):
         """Send error response"""
         error_data = {'error': message, 'status_code': status_code}
         self.send_json_response(error_data, status_code)
+    
+    def finish(self):
+        """Override finish to ensure proper connection cleanup"""
+        try:
+            super().finish()
+        except Exception as e:
+            print(f"[ERROR] Error during connection cleanup: {e}")
+            # Force close connection if cleanup fails
+            try:
+                if hasattr(self, 'connection'):
+                    self.connection.close()
+            except:
+                pass
     
     def browse_files(self, current_path=""):
         """Browse files and directories for file selection"""
@@ -626,7 +954,14 @@ class RedisWorkerServer:
         self.httpd = None
         
         # Create web directory if it doesn't exist
-        self.web_dir = Path(__file__).parent / 'web'
+        if getattr(sys, 'frozen', False):  # Running as PyInstaller executable
+            # When running as executable, look for web directory next to the .exe
+            exe_dir = Path(sys.executable).parent
+            self.web_dir = exe_dir / 'web'
+        else:
+            # When running as script, use the normal path
+            self.web_dir = Path(__file__).parent / 'web'
+        
         self.web_dir.mkdir(exist_ok=True)
         
         print("Redis worker server initialized with high-performance backend")
@@ -676,8 +1011,15 @@ class RedisWorkerServer:
         port = self.config['port']
         server_address = (host, port)
         
+        # Record startup time for uptime tracking
+        self._start_time = time.time()
+        
         try:
-            self.httpd = HTTPServer(server_address, EnhancedAPIHandler)
+            # Create threaded server for better connection handling
+            self.httpd = ThreadedHTTPServer(server_address, EnhancedAPIHandler)
+            
+            # Set socket timeout to prevent hanging connections (increased for stability)
+            self.httpd.timeout = 60  # Increased from 30 for 20+ workers
             
             print("=" * 60)
             print("[SERVER] REDIS ENHANCED RENDER FARM SERVER")
@@ -720,6 +1062,13 @@ class RedisWorkerServer:
     def stop(self):
         """Stop the server"""
         print("\n[STOP] Shutting down Redis server...")
+        
+        # Close Redis connection pool for clean shutdown
+        try:
+            redis_manager.close_connection_pool()
+        except Exception as e:
+            print(f"[WARNING] Error closing Redis connection pool: {e}")
+        
         if self.httpd:
             self.httpd.shutdown()
             self.httpd.server_close()
@@ -743,8 +1092,37 @@ class RedisWorkerServer:
             return "localhost"
 
 def main():
-    """Start the Redis server"""
+    """Start the Redis server with auto-install"""
     import argparse
+    
+    # Auto-install service when running as executable
+    if getattr(sys, 'frozen', False):  # Running as PyInstaller executable
+        print("Installing Render Farm Server Service...")
+        try:
+            import subprocess
+            import os
+            
+            # Get the directory where the executable is located
+            exe_dir = os.path.dirname(sys.executable)
+            install_script = os.path.join(exe_dir, 'server_install.bat')
+            
+            if os.path.exists(install_script):
+                # Change to executable directory and run install script
+                result = subprocess.run([install_script], 
+                                      capture_output=True, text=True, shell=True, cwd=exe_dir)
+                if result.returncode == 0:
+                    print("Service installation completed successfully!")
+                    if result.stdout:
+                        print(result.stdout)
+                else:
+                    print(f"Service installation failed: {result.stderr}")
+                    if result.stdout:
+                        print(f"Output: {result.stdout}")
+            else:
+                print(f"Installation script not found at: {install_script}")
+        except Exception as e:
+            print(f"Service installation error: {e}")
+        print()
     
     parser = argparse.ArgumentParser(description='Redis Enhanced Render Farm Server')
     parser.add_argument('--config', default='server_config.json',
@@ -752,7 +1130,13 @@ def main():
     
     args = parser.parse_args()
     
-    server = RedisWorkerServer(args.config)
+    # When running as executable, look for config in executable directory
+    config_path = args.config
+    if getattr(sys, 'frozen', False) and not os.path.isabs(config_path):
+        exe_dir = os.path.dirname(sys.executable)
+        config_path = os.path.join(exe_dir, config_path)
+    
+    server = RedisWorkerServer(config_path)
     
     try:
         server.start()
